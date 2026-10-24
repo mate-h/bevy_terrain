@@ -1,6 +1,6 @@
 # Bevy Terrain Preprocess
 
-A preprocessing tool for the [Bevy Terrain](https://github.com/kurtkuehnert/bevy_terrain) library.
+A preprocessing tool for the [bevy_terrain](https://github.com/mate-h/bevy_terrain) library.
 
 The bevy terrain library makes use of a quite specific terrain data format.
 To use the library, you have to convert your geodata, heightmaps, etc. to the format expected by bevy terrain.

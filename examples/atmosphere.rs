@@ -11,8 +11,8 @@ use bevy::{
     core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass},
     input::keyboard::KeyCode,
     light::{
-        Atmosphere, AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder, SunDisk,
-        VolumetricLight, atmosphere::ScatteringMedium, light_consts::lux,
+        atmosphere::ScatteringMedium, light_consts::lux, Atmosphere, AtmosphereEnvironmentMapLight,
+        CascadeShadowConfigBuilder, SunDisk, VolumetricLight,
     },
     math::{DVec2, DVec3},
     pbr::{AtmosphereMode, AtmosphereSettings},
@@ -151,6 +151,7 @@ fn main() {
         .add_plugins((
             DefaultPlugins.build().disable::<TransformPlugin>(),
             FreeCameraPlugin,
+            GroundAlignedFreeCameraPlugin,
             TerrainPlugin,
             TerrainMaterialPlugin::<CaliforniaMaterial>::default(),
         ))
@@ -383,6 +384,7 @@ fn setup_scene(
                     run_speed: 10000.0,
                     ..default()
                 },
+                GroundAlignedFreeCamera::new(TerrainShape::WGS84),
                 FloatingOrigin,
                 AtmosphereEnvironmentMapLight::default(),
             ))

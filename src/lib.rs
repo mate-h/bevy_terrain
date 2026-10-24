@@ -70,7 +70,10 @@ pub mod prelude {
     #[cfg(feature = "big_space")]
     pub use crate::debug::{DebugCameraController, OrbitalCameraController};
     pub use crate::{
-        debug::{DebugTerrainMaterial, LoadingImages, TerrainDebugPlugin},
+        debug::{
+            DebugTerrainMaterial, GroundAlignedFreeCamera, GroundAlignedFreeCameraPlugin,
+            LoadingImages, TerrainDebugPlugin,
+        },
         math::{TerrainShape, TileCoordinate},
         picking::{PickingData, TerrainPickingPlugin},
         planar_atmosphere::{PlanarAtmospherePlugin, PlanarAtmosphereSettings},

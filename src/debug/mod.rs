@@ -11,17 +11,19 @@ use crate::{
 use bevy::{
     light::GlobalAmbientLight,
     prelude::*,
-    render::{Extract, RenderApp, render_resource::*},
+    render::{render_resource::*, Extract, RenderApp},
     window::{CursorOptions, PrimaryWindow},
 };
 
 mod approximation_debug;
 #[cfg(feature = "big_space")]
 mod camera;
+mod ground_aligned_camera;
 #[cfg(feature = "big_space")]
 mod orbital_camera;
 
 pub(crate) use self::approximation_debug::*;
+pub use self::ground_aligned_camera::{GroundAlignedFreeCamera, GroundAlignedFreeCameraPlugin};
 #[cfg(feature = "big_space")]
 pub use self::{camera::DebugCameraController, orbital_camera::OrbitalCameraController};
 #[cfg(feature = "big_space")]

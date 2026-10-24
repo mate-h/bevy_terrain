@@ -1,135 +1,76 @@
-# Planetary Terrain Renderer
+# bevy_terrain
 
-![Screenshot 2025-04-26 at 15 13 40](https://github.com/user-attachments/assets/b3101705-20fc-4b6a-abfd-98e2a120b6f3)
+![California terrain in the atmosphere example](images/atmosphere.webp)
 
-A large-scale planetary terrain renderer written in Rust using the Bevy game engine.
+A Bevy plugin for large-scale planetary and planar terrain. It streams tiled height and attachment data, builds view-dependent geometry, and keeps GPU positions stable at planetary scale.
 
-This project is developed by [Kurt Kühnert](https://github.com/kurtkuehnert) and contains the reference implementation of my [Master Thesis](https://doi.org/10.60687/2025-0147).
-This terrain renderer focuses on visualizing large-scale terrains in a seamless, continuous, and efficient manner.
-The source code was developed as the open-source plugin **[bevy_terrain](https://github.com/kurtkuehnert/bevy_terrain)** for the Bevy game engine.
+Based on [this master thesis](https://doi.org/10.60687/2025-0147). [Video](https://youtu.be/zdz3-77-3EI).
 
-This [Video](https://youtu.be/zdz3-77-3EI) showcases the capabilities and features of this terrain renderer.
+## Features
 
-## Abstract
+- Spherical / WGS84 ellipsoid terrains and planar game-world terrains
+- Quadtree tile streaming with morphing and blending
+- Custom terrain materials and extra attachments (albedo, landcover, masks, ids)
+- Bevy PBR lighting, atmosphere, deferred G-buffer, and motion vectors
+- Heightfield terrain shadows that other materials can sample
+- Optional [`big_space`](https://github.com/mate-h/big_space) floating origin
+- GDAL-based preprocess crate for GeoTIFF and planar heightmaps
 
-Realtime rendering of virtual globes represents the pinnacle of largescale terrain
-rendering. Modeling the surface of an entire planet has vast applications, ranging
-from Geographic Information Systems (GIS) to educational software. However, the
-immense scale of planetary terrain introduces significant challenges, including
-levelofdetail (LOD) management and numerical precision limitations. This thesis
-provides an overview of the fundamental challenges in planetary terrain rendering
-and examines existing solutions. Building on this foundation, a comprehensive
-framework for planetary terrain rendering is presented, supporting terrains on an
-ellipsoidal base shape, which accurately represents the true spheroid form of planets,
-such as the WGS84 reference ellipsoid. The framework covers key aspects such
-as viewdependent terrain geometry management, terrain data streaming, and an
-accurate spatial reference system (SRS) that integrates seamlessly with the quadtree
-based subdivision of terrain geometry and data. A novel approach to maintaining high
-precision despite the limitations of floatingpoint accuracy on the Graphics Process
-ing Unit (GPU) is introduced. This method leverages a Taylor series approximation
-to compute positions on the ellipsoidal surface relative to the viewer. Additionally, a
-hierarchical system of coordinate transformations is proposed to accurately represent
-terrain positions at various scales. A crucial feature of any virtual globe framework is
-its ability to render multiple localized datasets on top of the planetary surface. This
-thesis presents a method for achieving this, supported by a preprocessing pipeline
-that converts arbitrary georeferenced raster files into datasets compatible with the
-rendering system. An extensive opensource reference implementation is provided,
-and the framework is evaluated using multiple datasets.
+## Bevy version
 
-## Screenshots
-
-![10](https://github.com/user-attachments/assets/da19c3b7-dad4-40f1-a94c-f4d987017ca2)
-![Screenshot 2025-04-26 at 15 19 18](https://github.com/user-attachments/assets/5b92bb08-ecce-4194-beca-ff7a5b35ade4)
-![11](https://github.com/user-attachments/assets/cc82078b-677c-4c2a-8ddf-5f1d2f444882)
+| Branch | Bevy |
+| --- | --- |
+| [`bevy-0.20.0`](https://github.com/mate-h/bevy_terrain/tree/bevy-0.20.0) (and `main` after the 0.20 release) | 0.20 from crates.io |
+| [`bevy-main`](https://github.com/mate-h/bevy_terrain/tree/bevy-main) | Bevy `main` |
 
 ## Examples
 
-To try out the terrain renderer, you first have to preprocess your dataset (GeoTIFF).
-Some example datasets are available [here](https://drive.proton.me/urls/ZRDAC9SWTM#IxwKkKWSBgnV).
-Use the preprocess CLI or a prepared configuration in the `preprocess/examples` directory.
-Then run the `examples/spherical.rs` demo with the preprocessed dataset selected.
-The default path for the datasets is `source_data`.
+Preprocess a GeoTIFF first (see [`preprocess/README.md`](preprocess/README.md)). Example datasets are [here](https://drive.proton.me/urls/ZRDAC9SWTM#IxwKkKWSBgnV). Put source rasters in `source_data` and write tiles under `assets/terrains/<name>/`.
 
-## Debug Controls
+```bash
+# California + atmosphere (needs assets/terrains/california)
+cargo run --example atmosphere --features atmosphere_example
 
-These are the debug controls of the plugin.
-Use them to navigate the terrain, experiment with the quality settings, and enter the different debug views.
-There are two camera controller options available: a fly camera for navigating using the keyboard and an orbital camera
-using only the mouse.
+# Mount Baker + terrain shadows
+cargo run --example mount_baker --features atmosphere_example
 
-### Fly Camera
+# Flat world on a planetary atmosphere shell
+cargo run --example planar_world --features atmosphere_example
 
-- `T` - toggle fly camera movement
-- Move the mouse to look around
-- Press the arrow keys to move the camera horizontally
-- Use `PageUp` and `PageDown` to move the camera vertically
-- Use `Home` and `End` to increase/decrease the camera's movement speed
+# Spherical globe (expects assets/terrains/earth; also loads California)
+cargo run --example spherical
+```
 
-### Orbital Camera
+`bc_atmosphere` is the same path as `atmosphere` for the BC dataset. `precision_demo` needs `--features rand`.
 
-- `R` - toggle orbital camera movement
-- Hold the left mouse button to pan the camera
-- Hold the middle mouse button to rotate the camera
-- Hold the right mouse button to zoom the camera
+Atmosphere examples use Bevy's free camera (`WASD`, mouse). Mount Baker also toggles terrain shadows with `T` and sun motion with Enter.
 
-### Visualization Toggles
+`examples/spherical.rs` enables `TerrainDebugPlugin`: `T` fly camera, `R` orbit camera, `W` wireframe, `L`/`Y` LOD views, `N`/`E` blend distance, `I`/`O` morph distance.
 
-- `W` - toggle wireframe view
-- `L` - toggle terrain data LOD view
-- `Y` - toggle terrain geometry LOD view
-- `Q` - toggle tile tree view
-- `P` - toggle pixel view
-- `U` - toggle UV view
-- `B` - toggle normals view
-- `M` - toggle morphing
-- `K` - toggle blending
-- `Z` - toggle tile tree LOD
-- `S` - toggle lighting
-- `G` - toggle texture sampling using gradients
-- `H` - toggle high precision coordinates
-- `F` - toggle freeze view frustum
-- `D` - toggle surface approximation debug
+## Screenshots
 
-### Quality Adjustments
+![Earth from the spherical example](images/spherical.webp)
 
-- `N` - decrease blend distance
-- `E` - increase blend distance
-- `I` - decrease morph distance
-- `O` - increase morph distance
-- `X` - decrease grid size
-- `J` - increase grid size
-
-## GPU Frame Capture (macOS)
-
-When enabling the `metal_capture` feature, you can trigger a GPU frame capture using the `C` key.
-Recorded captures are stored in the `captures` directory of the project.
-They can be examined and analyzed using Xcode.
-
-On macOS, the crate sets `METAL_CAPTURE_ENABLED=1` before Bevy initializes the Metal device.
-If capture still fails in a custom binary, call `bevy_terrain::prepare_metal_capture()` at the start of `main` before `App::new()`.
+![California terrain, hazy light](images/atmosphere-haze.webp)
 
 ## Attribution
+
+Originally [kurtkuehnert/bevy_terrain](https://github.com/kurtkuehnert/bevy_terrain) by [Kurt Kühnert](https://github.com/kurtkuehnert).
 
 The examples use the following [demo datasets](https://drive.proton.me/urls/ZRDAC9SWTM#IxwKkKWSBgnV):
 
 - GEBCO Compilation Group (2023) - GEBCO 2023 Grid
-- Unearthed Outdoors - True Marble Global Image Dataset GeoTIFF - [Creative Commons Attribution 3.0 United States
-  License](https://creativecommons.org/licenses/by/3.0/us/legalcode)
+- Unearthed Outdoors - True Marble Global Image Dataset GeoTIFF - [Creative Commons Attribution 3.0 United States License](https://creativecommons.org/licenses/by/3.0/us/legalcode)
 - ©swisstopo - swissALTIRegio
-- This work utilizes data made available under the Norwegian Licence for Open Government Data (NLOD), distributed by the
-  Norwegian Offshore Directorate. The data were originally acquired by various entities. For more information on the
-  data,
-  please visit the Norwegian Offshore Directorate's open data page:
-  https://www.sodir.no/en/about-us/open-data/.
+- This work utilizes data made available under the Norwegian Licence for Open Government Data (NLOD), distributed by the Norwegian Offshore Directorate. The data were originally acquired by various entities. For more information, see https://www.sodir.no/en/about-us/open-data/.
 
 ## License
 
-Planetary Terrain Renderer source code is dual-licensed under either:
+bevy_terrain source code is dual-licensed under either:
 
 * MIT License (LICENSE-MIT or http://opensource.org/licenses/MIT)
 * Apache License, Version 2.0 (LICENSE-APACHE or http://www.apache.org/licenses/LICENSE-2.0)
 
 at your option.
 
-The Thesis.pdf is excluded from both of these and is licensed under
-the [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license instead.
+The original thesis PDF, when present, is licensed under the [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license instead.

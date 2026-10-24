@@ -49,9 +49,9 @@ fn main() {
             TerrainDebugPlugin, // enable debug settings and controls
             TerrainPickingPlugin,
         ))
-        .insert_resource(TerrainSettings::new(vec!["albedo"]))
+        .insert_resource(TerrainSettings::new(vec!["albedo", "landcover"]))
         .insert_resource(GlobalAmbientLight::NONE)
-        // .insert_resource(ClearColor(Color::WHITE))
+        .insert_resource(ClearColor(Color::BLACK))
         .add_systems(Startup, initialize)
         .run();
 }
