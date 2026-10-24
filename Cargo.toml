@@ -9,7 +9,7 @@ keywords = ["gamedev", "graphics", "bevy", "terrain"]
 exclude = ["assets/*"]
 readme = "README.md"
 authors = ["Kurt Kühnert <kurt@kuehnert.dev>"]
-repository = "https://github.com/kurtkuehnert/bevy_terrain"
+repository = "https://github.com/mate-h/bevy_terrain"
 
 [workspace]
 members = ["preprocess"]
@@ -26,7 +26,7 @@ bluenoise_texture = ["bevy/bluenoise_texture"]
 atmosphere_example = ["bevy/free_camera", "bevy/https", "bevy/tonemapping_luts"]
 
 [dependencies]
-bevy = { version = "0.20", default-features = false, features = ["3d"] }
+bevy = { version = "0.20", default-features = false, features = ["3d", "free_camera"] }
 big_space = { git = "https://github.com/mate-h/big_space", branch = "bevy-0.20.0", features = ["i32"], optional = true }
 tiff = "0.10"
 bytemuck = { version = "1.14", features = ["derive"] }

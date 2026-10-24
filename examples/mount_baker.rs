@@ -11,8 +11,8 @@ use bevy::{
     camera_controller::free_camera::{FreeCamera, FreeCameraPlugin},
     input::keyboard::KeyCode,
     light::{
-        Atmosphere, AtmosphereEnvironmentMapLight, SunDisk, VolumetricLight,
-        atmosphere::ScatteringMedium, light_consts::lux,
+        atmosphere::ScatteringMedium, light_consts::lux, Atmosphere, AtmosphereEnvironmentMapLight,
+        SunDisk, VolumetricLight,
     },
     math::DVec3,
     pbr::{AtmosphereMode, AtmosphereSettings},
@@ -118,6 +118,7 @@ fn main() {
                 .build()
                 .disable::<TransformPlugin>(),
             FreeCameraPlugin,
+            GroundAlignedFreeCameraPlugin,
             TerrainPlugin,
             TerrainMaterialPlugin::<MountBakerMaterial>::default(),
         ))
@@ -229,6 +230,7 @@ fn setup_scene(
                     run_speed: 1000.0,
                     ..default()
                 },
+                GroundAlignedFreeCamera::new(TerrainShape::WGS84),
                 FloatingOrigin,
                 AtmosphereEnvironmentMapLight::default(),
             ))
