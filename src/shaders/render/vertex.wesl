@@ -1,11 +1,10 @@
-#define_import_path bevy_terrain::vertex
 
-#import bevy_terrain::types::{Blend, Coordinate, WorldCoordinate}
-#import bevy_terrain::bindings::terrain_view
-#import bevy_terrain::functions::{compute_coordinate, compute_world_coordinate, compute_blend, lookup_tile, apply_height}
-#import bevy_terrain::attachments::sample_height
-#import bevy_pbr::mesh_view_bindings::view
-#import bevy_pbr::view_transformations::position_world_to_clip
+import bevy_terrain::shaders::types::{Blend, Coordinate, WorldCoordinate};
+import bevy_terrain::shaders::bindings::terrain_view;
+import bevy_terrain::shaders::functions::{compute_coordinate, compute_world_coordinate, compute_blend, lookup_tile, apply_height};
+import bevy_terrain::shaders::attachments::sample_height;
+import bevy_pbr::render::mesh_view_bindings::view;
+import bevy_pbr::render::view_transformations::position_world_to_clip;
 
 struct VertexInput {
     @builtin(vertex_index) vertex_index: u32,
@@ -14,7 +13,7 @@ struct VertexInput {
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tile_uv: vec2<f32>,
-    @location(1) tile_index: u32,
+    @location(1) @interpolate(flat) tile_index: u32,
     @location(2) view_distance: f32,
     @location(3) height: f32,
 }

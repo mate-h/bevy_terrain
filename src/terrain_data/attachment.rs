@@ -6,11 +6,19 @@ use serde::{Deserialize, Serialize};
 use std::{fmt::Error, path::PathBuf, str::FromStr};
 use strum_macros::EnumIter;
 
+/// Name of one tiled image in a dataset.
+///
+/// Height is always present. A [`Custom`](AttachmentLabel::Custom) name such as `"albedo"`
+/// must be listed in [`TerrainSettings::new`](crate::plugin::TerrainSettings::new) for the
+/// shader to bind `<name>_attachment`.
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash, Default)]
 pub enum AttachmentLabel {
+    /// The elevation attachment. Always bound.
     #[default]
     Height,
+    /// Any other attachment. The string matches the folder the preprocess tool wrote.
     Custom(String), // Todo: this should not be a heap allocated string
+    /// Padding slot so the shader can declare a fixed set of attachment bindings.
     Empty(usize),
 }
 
@@ -42,6 +50,12 @@ pub enum AttachmentFormat {
     Rgb8U,
     /// Four channels  8 bit unsigned integer
     Rgba8U,
+    /// Four channels  8 bit unsigned integer with a linear (non-sRGB) render
+    /// view, for attachments that pack non-color data per channel (ids,
+    /// masks, weights) and fetch it raw.
+    Rgba8ULinear,
+    /// One channel   8 bit unsigned integer
+    R8U,
     /// One channel  16 bit unsigned integer
     R16U,
     /// One channel  16 bit integer
@@ -58,6 +72,8 @@ impl FromStr for AttachmentFormat {
         match s.trim() {
             "rg8u" => Ok(Self::Rgb8U),
             "rgba8u" => Ok(Self::Rgba8U),
+            "rgba8u_linear" => Ok(Self::Rgba8ULinear),
+            "r8u" => Ok(Self::R8U),
             "r16u" => Ok(Self::R16U),
             "r16i" => Ok(Self::R16I),
             "r32f" => Ok(Self::R32F),
@@ -71,6 +87,13 @@ impl AttachmentFormat {
         match self {
             AttachmentFormat::Rgb8U => TextureFormat::Rgba8UnormSrgb,
             AttachmentFormat::Rgba8U => TextureFormat::Rgba8UnormSrgb,
+            // Linear on purpose: packed non-color data read via
+            // `textureLoad`/`textureGather` must come back byte-exact — an
+            // sRGB view would apply the EOTF on fetch. This also matches
+            // `processing_format` below, so mips are generated and rendered
+            // through the same transfer function.
+            AttachmentFormat::Rgba8ULinear => TextureFormat::Rgba8Unorm,
+            AttachmentFormat::R8U => TextureFormat::R8Unorm,
             AttachmentFormat::R16U => TextureFormat::R16Unorm,
             AttachmentFormat::R16I => TextureFormat::R16Snorm,
             AttachmentFormat::Rg16U => TextureFormat::Rg16Unorm,
@@ -82,6 +105,14 @@ impl AttachmentFormat {
         match self {
             AttachmentFormat::Rgb8U => TextureFormat::Rgba8Unorm,
             AttachmentFormat::Rgba8U => TextureFormat::Rgba8Unorm,
+            AttachmentFormat::Rgba8ULinear => TextureFormat::Rgba8Unorm,
+            // Unorm, not Uint: the atlas texture is created with this format
+            // and lists `render_format` in `view_formats`, which wgpu only
+            // accepts when the two differ by at most the sRGB suffix. It is
+            // also bound as a filterable `texture_2d_array<f32>` by the mip
+            // pass and sampled through a `FilterMode::Linear` sampler, both
+            // of which a Uint format forbids.
+            AttachmentFormat::R8U => TextureFormat::R8Unorm,
             AttachmentFormat::R16U => TextureFormat::R16Uint,
             AttachmentFormat::R16I => TextureFormat::R16Uint,
             AttachmentFormat::Rg16U => TextureFormat::Rg16Uint,
@@ -93,6 +124,8 @@ impl AttachmentFormat {
         match self {
             AttachmentFormat::Rgb8U => 4,
             AttachmentFormat::Rgba8U => 4,
+            AttachmentFormat::Rgba8ULinear => 4,
+            AttachmentFormat::R8U => 1,
             AttachmentFormat::R16U => 2,
             AttachmentFormat::R16I => 2,
             AttachmentFormat::Rg16U => 4,
@@ -102,13 +135,16 @@ impl AttachmentFormat {
 }
 
 /// Configures an attachment.
+/// Pixel format and tile size of one attachment, as stored in `config.tc.ron`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AttachmentConfig {
-    /// The name of the attachment.
+    /// Tile edge length in texels, including the border.
     pub texture_size: u32,
     /// The overlapping border size around the tile, used to prevent sampling artifacts.
     pub border_size: u32,
+    /// Mip levels stored for this attachment.
     pub mip_level_count: u32,
+    /// On the height attachment, a texel whose low bit is clear is nodata and the shader discards it.
     pub mask: bool,
     /// The format of the attachment.
     pub format: AttachmentFormat,
@@ -142,6 +178,8 @@ pub enum AttachmentData {
     // Rgb8(Vec<(u8, u8, u8)>), Can not be represented currently
     /// Four  channels  8 bit
     Rgba8U(Vec<[u8; 4]>),
+    /// One   channel   8 bit
+    R8U(Vec<u8>),
     /// One   channel  16 bit
     R16U(Vec<u16>),
     /// One   channel  16 bit
@@ -160,6 +198,8 @@ impl AttachmentData {
                     .collect_vec(),
             ),
             AttachmentFormat::Rgba8U => Self::Rgba8U(cast_slice(data).to_vec()),
+            AttachmentFormat::Rgba8ULinear => Self::Rgba8U(cast_slice(data).to_vec()),
+            AttachmentFormat::R8U => Self::R8U(data.to_vec()),
             AttachmentFormat::R16U => Self::R16U(cast_slice(data).to_vec()),
             AttachmentFormat::R16I => Self::R16I(cast_slice(data).to_vec()),
             AttachmentFormat::Rg16U => Self::Rg16U(cast_slice(data).to_vec()),
@@ -170,6 +210,7 @@ impl AttachmentData {
     pub(crate) fn bytes(&self) -> &[u8] {
         match self {
             AttachmentData::Rgba8U(data) => cast_slice(data),
+            AttachmentData::R8U(data) => cast_slice(data),
             AttachmentData::R16U(data) => cast_slice(data),
             AttachmentData::R16I(data) => cast_slice(data),
             AttachmentData::Rg16U(data) => cast_slice(data),
@@ -182,6 +223,11 @@ impl AttachmentData {
 pub struct AttachmentTile {
     pub(crate) coordinate: TileCoordinate,
     pub(crate) label: AttachmentLabel,
+    /// The tile-state generation this load was issued under. A completed load
+    /// only counts toward a tile state carrying the same generation, so loads
+    /// issued for an evicted predecessor at the same coordinate cannot corrupt
+    /// its successor's attachment counter (see `request_tile`).
+    pub(crate) generation: u32,
 }
 
 #[derive(Clone)]

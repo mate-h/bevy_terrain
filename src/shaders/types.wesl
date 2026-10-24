@@ -1,4 +1,5 @@
-#define_import_path bevy_terrain::types
+
+const INVALID_ATLAS_INDEX: u32 = 4294967295u;
 
 struct Terrain {
     lod_count: u32,
@@ -27,12 +28,10 @@ struct TerrainView {
     face: u32,
     lod: u32,
     coordinates: array<ViewCoordinate, 6>,
-    height_scale: f32,
     world_position: vec3<f32>,
     half_spaces: array<vec4<f32>, 6>,
-#ifdef HIGH_PRECISION
+    @if(HIGH_PRECISION)
     surface_approximation: array<SurfaceApproximation, 6>, // must be last field of this struct
-#endif
 }
 
 struct TileCoordinate {
@@ -54,10 +53,10 @@ struct Coordinate {
     lod: u32,
     xy: vec2<u32>,
     uv: vec2<f32>,
-#ifdef FRAGMENT
+    @if(FRAGMENT)
     uv_dx: vec2<f32>,
+    @if(FRAGMENT)
     uv_dy: vec2<f32>,
-#endif
 }
 
 struct WorldCoordinate {
@@ -95,7 +94,7 @@ struct AtlasTile {
     blend_ratio: f32,
 }
 
-#ifdef HIGH_PRECISION
+@if(HIGH_PRECISION)
 struct SurfaceApproximation {
     p: vec3<f32>,
     p_u: vec3<f32>,
@@ -104,11 +103,32 @@ struct SurfaceApproximation {
     p_uv: vec3<f32>,
     p_vv: vec3<f32>,
 }
-#endif
 
 struct BestLookup {
     tile: AtlasTile,
     tile_tree_uv: vec2<f32>,
+}
+
+// Parameters of the RDR2-style raymarched terrain shadow map.
+// The map covers a tangent-frame region around the view: texel (u, v) maps to the
+// world position center + u * east + v * north, projected onto the terrain surface.
+struct TerrainShadow {
+    unit_from_world: mat4x4<f32>,
+    center: vec3<f32>,          // on the ellipsoid surface (height 0), world space
+    extent: f32,                // half size of the map, meters
+    east: vec3<f32>,
+    texel_size: f32,
+    north: vec3<f32>,
+    curvature: f32,             // 1 / (2 * planet radius), 0 for planar terrain
+    up: vec3<f32>,
+    max_distance: f32,          // maximum horizon scan distance, meters
+    light_direction: vec3<f32>, // direction towards the sun, world space
+    penumbra_scale: f32,        // tan(sun angular radius) * softness
+    min_penumbra: f32,
+    map_size: f32,
+    steps: u32,
+    enabled: u32,
+    lod: u32,                   // fixed tile tree lod used for height sampling
 }
 
 struct AttachmentConfig {
@@ -135,8 +155,8 @@ struct TangentSpace {
 
 struct SampleUV {
     uv: vec2<f32>,
-#ifdef FRAGMENT
+    @if(FRAGMENT)
     dx: vec2<f32>,
+    @if(FRAGMENT)
     dy: vec2<f32>,
-#endif
 }

@@ -18,6 +18,10 @@ fn main() {
         border_size: 2,
         mip_level_count: 1,
         format: AttachmentFormat::R32F,
+        resample_alg: PreprocessResampleAlg::Bilinear,
+        sparse: false,
+        planar: false,
+        side_length: None,
     };
 
     let (src_dataset, mut context) = PreprocessContext::from_cli(args).unwrap();

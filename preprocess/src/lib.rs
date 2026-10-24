@@ -5,6 +5,7 @@ mod fill_no_data;
 mod gdal_extension;
 mod reproject;
 mod result;
+mod sparse_split;
 mod split;
 mod stitch;
 mod transformers;
@@ -15,6 +16,7 @@ use crate::{
     downsample::downsample_and_stitch,
     fill_no_data::create_mask_and_fill_no_data,
     reproject::reproject,
+    sparse_split::sparse_split_and_stitch,
     split::split_and_stitch,
 };
 use bevy_terrain::prelude::*;
@@ -28,15 +30,30 @@ use std::time::Instant;
 pub mod prelude {
     pub use crate::{
         cli::Cli,
-        dataset::{PreprocessContext, PreprocessDataType, PreprocessNoData},
+        dataset::{PreprocessContext, PreprocessDataType, PreprocessNoData, PreprocessResampleAlg},
         preprocess,
     };
+}
+
+fn load_tile_manifest(context: &mut PreprocessContext) {
+    if !context.sparse || context.attachment_label == AttachmentLabel::Height {
+        return;
+    }
+
+    let config_path = context.terrain_path.join("config.tc.ron");
+    if config_path.is_file() {
+        context.tile_manifest = TerrainConfig::load_file(&config_path)
+            .ok()
+            .map(|config| config.tiles);
+    }
 }
 
 fn preprocess_gen<T: Copy + GdalType + PartialEq + NumCast>(
     src_dataset: Dataset,
     context: &mut PreprocessContext,
 ) {
+    load_tile_manifest(context);
+
     if context.overwrite {
         clear_directory(&context.tile_dir);
     }
@@ -45,17 +62,35 @@ fn preprocess_gen<T: Copy + GdalType + PartialEq + NumCast>(
 
     let start_preprocessing = Instant::now();
 
-    let progress_bar = PreprocessBar::new("Reprojecting".to_string());
-    let faces = reproject::<T>(src_dataset, context, Some(progress_bar.callback())).unwrap();
-    progress_bar.finish();
+    let tiles = if context.sparse {
+        let progress_bar = PreprocessBar::new("Warping tiles".to_string());
+        let tiles =
+            sparse_split_and_stitch::<T>(&src_dataset, context, Some(progress_bar.callback()))
+                .unwrap();
+        progress_bar.finish();
 
-    let progress_bar = PreprocessBar::new("Splitting".to_string());
-    let tiles = split_and_stitch::<T>(faces, context, Some(progress_bar.callback())).unwrap();
-    progress_bar.finish();
+        let progress_bar = PreprocessBar::new("Downsampling".to_string());
+        let tiles =
+            downsample_and_stitch::<T>(&tiles, context, Some(progress_bar.callback())).unwrap();
+        progress_bar.finish();
 
-    let progress_bar = PreprocessBar::new("Downsampling".to_string());
-    let tiles = downsample_and_stitch::<T>(&tiles, context, Some(progress_bar.callback())).unwrap();
-    progress_bar.finish();
+        tiles
+    } else {
+        let progress_bar = PreprocessBar::new("Reprojecting".to_string());
+        let faces = reproject::<T>(src_dataset, context, Some(progress_bar.callback())).unwrap();
+        progress_bar.finish();
+
+        let progress_bar = PreprocessBar::new("Splitting".to_string());
+        let tiles = split_and_stitch::<T>(faces, context, Some(progress_bar.callback())).unwrap();
+        progress_bar.finish();
+
+        let progress_bar = PreprocessBar::new("Downsampling".to_string());
+        let tiles =
+            downsample_and_stitch::<T>(&tiles, context, Some(progress_bar.callback())).unwrap();
+        progress_bar.finish();
+
+        tiles
+    };
 
     let progress_bar = PreprocessBar::new("Filling".to_string());
     create_mask_and_fill_no_data(&tiles, context, Some(progress_bar.callback())).unwrap();
@@ -95,7 +130,13 @@ fn save_terrain_config(tiles: Vec<TileCoordinate>, context: &PreprocessContext) 
 
     let mut config = TerrainConfig::load_file(&file_path).unwrap_or_default();
 
-    config.shape = TerrainShape::WGS84;
+    config.shape = if context.planar {
+        TerrainShape::Plane {
+            side_length: context.side_length.unwrap(),
+        }
+    } else {
+        TerrainShape::WGS84
+    };
     config.path = context.terrain_path.to_str().unwrap().to_string();
     config.add_attachment(context.attachment_label.clone(), context.attachment.clone());
 

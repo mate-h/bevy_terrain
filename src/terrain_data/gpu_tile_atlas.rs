@@ -32,8 +32,38 @@ pub struct GpuTileAtlas {
 }
 
 impl GpuTileAtlas {
+    /// The resident atlas array-texture for `label` — a `texture_2d_array`
+    /// with one tile per array layer, in the attachment's render format — for
+    /// external render systems that sample it directly. Returns `None` if this
+    /// terrain has no such attachment.
+    ///
+    /// Intended for consumers that follow tile residency through the
+    /// [`TerrainTileReady`](super::TerrainTileReady) /
+    /// [`TerrainTileDropped`](super::TerrainTileDropped) messages (which carry
+    /// the `atlas_index` = array layer) — e.g. building raytracing acceleration
+    /// structures from the resident height atlas. Sample layer `atlas_index` at
+    /// texel `(col, row)` with `textureLoad`; for the height attachment the
+    /// value is the surface height in metres (no min/max remap).
+    ///
+    /// The texture is resident and stable for the whole render graph once
+    /// `GpuTileAtlas::prepare` has run this frame; a consumer reacting to a
+    /// `TerrainTileReady` message should treat the slot as GPU-resident from the
+    /// following frame (the CPU-ready edge precedes the texture upload by one
+    /// frame).
+    pub fn attachment_texture(&self, label: &AttachmentLabel) -> Option<&Texture> {
+        self.attachments
+            .get(label)
+            .map(|attachment| &attachment.atlas_texture)
+    }
+
     pub(crate) fn generate_mip(&self, pass: &mut ComputePass, pipeline_cache: &PipelineCache) {
         for attachment in self.attachments.values() {
+            // Mip-less attachments never queue a pipeline; skipping them here
+            // keeps one from aborting mip generation for the others.
+            if attachment.buffer_info.mip_level_count <= 1 {
+                continue;
+            }
+
             let Some(pipeline) = pipeline_cache.get_compute_pipeline(attachment.mip_pipeline)
             else {
                 dbg!("Skipped mipmap generation");
@@ -160,6 +190,12 @@ impl GpuTileAtlas {
     ) {
         for gpu_tile_atlas in gpu_tile_atlases.values_mut() {
             for attachment in gpu_tile_atlas.attachments.values_mut() {
+                // Specializing builds a storage-texture layout of this
+                // attachment's format; skip it when there are no mips.
+                if attachment.buffer_info.mip_level_count <= 1 {
+                    continue;
+                }
+
                 attachment.mip_pipeline = pipelines.specialize(
                     &pipeline_cache,
                     &mip_pipelines,
@@ -218,7 +254,10 @@ impl GpuTileAtlas {
 
                             rx.recv().await.unwrap();
 
-                            let mut data = buffer_slice.get_mapped_range().to_vec();
+                            let mut data = buffer_slice
+                                .get_mapped_range()
+                                .expect("tile download buffer should be mapped")
+                                .to_vec();
 
                             download_buffer.unmap();
                             drop(download_buffer);

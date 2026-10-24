@@ -1,21 +1,11 @@
-//! This module contains the two fundamental data structures of the terrain:
-//! the [`TileTree`] and the [`TileAtlas`].
+//! [`TileAtlas`] caches tiled attachments. [`TileTree`] decides which tiles each view needs.
 //!
-//! # Explanation
-//! Each terrain possesses one [`TileAtlas`], which can be configured
-//! to store any [`AtlasAttachment`](attachment::Attachment) required (eg. height, density, albedo, splat, edc.)
-//! These attachments can vary in resolution and texture format.
-//!
-//! To decide which tiles should be currently loaded you can create multiple
-//! [`TileTree`] views that correspond to one tile atlas.
-//! These tile_trees request and release tiles from the tile atlas based on their quality
-//! setting (`load_distance`).
-//! Additionally they are then used to access the best loaded data at any position.
-//!
-//! Both the tile atlas and the tile_trees also have a corresponding GPU representation,
-//! which can be used to access the terrain data in shaders.
+//! An attachment is one tiled image alongside height: albedo, landcover, a mask, an id map.
+//! Resolution and format are per attachment. Shaders read the atlas through the bind group
+//! built from [`crate::plugin::TerrainSettings`].
 
 mod attachment;
+mod events;
 mod gpu_attachment;
 mod gpu_tile_atlas;
 mod tile_atlas;
@@ -24,6 +14,7 @@ mod tile_tree;
 
 pub use self::{
     attachment::{AttachmentConfig, AttachmentFormat, AttachmentLabel},
+    events::{TerrainTileDropped, TerrainTileReady},
     gpu_tile_atlas::GpuTileAtlas,
     tile_atlas::TileAtlas,
     tile_tree::TileTree,

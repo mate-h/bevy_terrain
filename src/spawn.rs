@@ -1,10 +1,19 @@
+//! [`SpawnTerrainCommandsExt::spawn_terrain`] queues a terrain and spawns it once the config asset loads.
+
 use crate::{
+    floating_origin::parent_terrain_under_big_space,
     plugin::TerrainSettings,
     terrain::TerrainConfig,
     terrain_data::{TileAtlas, TileTree},
     terrain_view::{TerrainViewComponents, TerrainViewConfig},
 };
-use bevy::{ecs::system::SystemState, prelude::*, render::storage::ShaderBuffer};
+use bevy::{
+    camera::visibility::{NoCpuCulling, NoFrustumCulling},
+    ecs::system::SystemState,
+    prelude::*,
+    render::storage::ShaderBuffer,
+};
+#[cfg(feature = "big_space")]
 use big_space::floating_origins::BigSpace;
 
 #[derive(Clone)]
@@ -35,15 +44,29 @@ pub(crate) fn spawn_terrains<M: Material>(
                     view,
                 } = terrain;
 
-                let mut state = SystemState::<(
-                    Commands,
-                    Res<Assets<TerrainConfig>>,
-                    Query<Entity, With<BigSpace>>,
-                    ResMut<Assets<M>>,
-                    ResMut<TerrainViewComponents<TileTree>>,
-                    ResMut<Assets<ShaderBuffer>>,
-                    Res<TerrainSettings>,
-                )>::new(world);
+                #[cfg(feature = "big_space")]
+                type SpawnState<'w, 's, M> = (
+                    Commands<'w, 's>,
+                    Res<'w, Assets<TerrainConfig>>,
+                    Query<'w, 's, Entity, With<BigSpace>>,
+                    ResMut<'w, Assets<M>>,
+                    ResMut<'w, TerrainViewComponents<TileTree>>,
+                    ResMut<'w, Assets<ShaderBuffer>>,
+                    Res<'w, TerrainSettings>,
+                );
+
+                #[cfg(not(feature = "big_space"))]
+                type SpawnState<'w, 's, M> = (
+                    Commands<'w, 's>,
+                    Res<'w, Assets<TerrainConfig>>,
+                    Query<'w, 's, Entity>,
+                    ResMut<'w, Assets<M>>,
+                    ResMut<'w, TerrainViewComponents<TileTree>>,
+                    ResMut<'w, Assets<ShaderBuffer>>,
+                    Res<'w, TerrainSettings>,
+                );
+
+                let mut state = SystemState::<SpawnState<M>>::new(world);
 
                 let Ok((
                     mut commands,
@@ -60,17 +83,18 @@ pub(crate) fn spawn_terrains<M: Material>(
 
                 let config = configs.get(config.id()).unwrap().clone();
 
-                let root = big_space.single().unwrap();
-
                 let terrain = commands
                     .spawn((
                         config.shape.transform(),
-                        TileAtlas::new(&config, &mut buffers, &settings),
+                        TileAtlas::new(&config, &settings),
                         MeshMaterial3d(materials.add(material)),
+                        Visibility::Visible,
+                        NoCpuCulling,
+                        NoFrustumCulling,
                     ))
                     .id();
 
-                commands.entity(root).add_child(terrain);
+                parent_terrain_under_big_space(&mut commands, terrain, &big_space);
 
                 tile_trees.insert(
                     (terrain, view),
@@ -92,8 +116,13 @@ pub(crate) fn spawn_terrains<M: Material>(
     });
 }
 
+/// Queue a terrain from a loaded [`TerrainConfig`].
 pub trait SpawnTerrainCommandsExt<M: Material> {
-    // define a method that we will be able to call on `commands`
+    /// Spawn `config` for `view` (a camera) once the asset is loaded.
+    ///
+    /// Register [`TerrainMaterialPlugin`](crate::render::TerrainMaterialPlugin) for `M` first.
+    /// `config` is usually `asset_server.load("terrains/<name>/config.tc.ron")`.
+    /// [`TerrainViewConfig::default`](crate::terrain_view::TerrainViewConfig::default) is a fine start.
     fn spawn_terrain(
         &mut self,
         config: Handle<TerrainConfig>,

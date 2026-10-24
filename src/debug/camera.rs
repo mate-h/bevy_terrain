@@ -1,6 +1,9 @@
 use bevy::{input::mouse::MouseMotion, math::DVec3, prelude::*};
 use big_space::{prelude::*, world_query::CellTransformItem};
 
+/// Fly camera for `big_space` worlds. `T` toggles it. Arrow keys move, the mouse looks.
+///
+/// [`DebugCameraController::new`] takes a speed. For a planet, start near the radius in meters.
 #[derive(Clone, Debug, Reflect, Component)]
 #[require(Camera3d, FloatingOrigin = FloatingOrigin)]
 pub struct DebugCameraController {

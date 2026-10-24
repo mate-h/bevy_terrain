@@ -80,9 +80,6 @@ impl Transformer for ReprojectionTransformer {
         let mut success_int = vec![0; x.len()];
 
         self.counter += 1;
-        //dbg!(self.counter);
-
-        //dbg!(thread::current().id());
 
         let return_value = unsafe {
             GDALReprojectionTransform(
@@ -110,11 +107,12 @@ impl Transformer for ReprojectionTransformer {
 
 struct CubeTransformer {
     face: u32,
+    is_spherical: bool,
 }
 
 impl CubeTransformer {
-    fn new(face: u32) -> Self {
-        Self { face }
+    fn new(face: u32, is_spherical: bool) -> Self {
+        Self { face, is_spherical }
     }
 }
 
@@ -127,38 +125,58 @@ impl Transformer for CubeTransformer {
         _: &mut [f64],
         success: &mut [bool],
     ) -> PreprocessResult<()> {
-        // Todo: convert to and from spherical to ellipsoidal lat/lon
-        // Todo: check unit <--> lat/lon
+        if self.is_spherical {
+            if dst_to_src {
+                for (lon_or_u, lat_or_v, success) in
+                    izip!(lon_or_u.iter_mut(), lat_or_v.iter_mut(), success.iter_mut())
+                {
+                    let coordinate = Coordinate::new(self.face, DVec2::new(*lon_or_u, *lat_or_v));
+                    let unit_position = coordinate.unit_position(true);
 
-        if dst_to_src {
+                    let lon = unit_position.z.atan2(-unit_position.x);
+                    let lat = unit_position.y.asin();
+
+                    *success = *success && !lat.is_nan();
+                    *lon_or_u = lon.to_degrees();
+                    *lat_or_v = lat.to_degrees();
+                }
+            } else {
+                for (lon_or_u, lat_or_v, success) in
+                    izip!(lon_or_u.iter_mut(), lat_or_v.iter_mut(), success.iter_mut())
+                {
+                    let lon = lon_or_u.to_radians();
+                    let lat = lat_or_v.to_radians();
+
+                    let unit_position =
+                        DVec3::new(-lat.cos() * lon.cos(), lat.sin(), lat.cos() * lon.sin());
+
+                    let coordinate = Coordinate::from_unit_position(unit_position, true);
+
+                    *success = *success
+                        && (unit_position.length() - 1.0).abs() < 0.00001
+                        && coordinate.face == self.face;
+                    *lon_or_u = coordinate.uv.x;
+                    *lat_or_v = coordinate.uv.y;
+                }
+            }
+        } else if dst_to_src {
             for (lon_or_u, lat_or_v, success) in
                 izip!(lon_or_u.iter_mut(), lat_or_v.iter_mut(), success.iter_mut())
             {
                 let coordinate = Coordinate::new(self.face, DVec2::new(*lon_or_u, *lat_or_v));
-                let unit_position = coordinate.unit_position(true);
-
-                let lon = unit_position.z.atan2(-unit_position.x);
-                let lat = unit_position.y.asin();
-
-                *success = *success && !lat.is_nan();
-                *lon_or_u = lon.to_degrees();
-                *lat_or_v = lat.to_degrees();
+                let unit_position = coordinate.unit_position(false);
+                *lon_or_u = unit_position.x + 0.5;
+                *lat_or_v = unit_position.z + 0.5;
+                *success =
+                    *success && (0.0..=1.0).contains(lon_or_u) && (0.0..=1.0).contains(lat_or_v);
             }
         } else {
             for (lon_or_u, lat_or_v, success) in
                 izip!(lon_or_u.iter_mut(), lat_or_v.iter_mut(), success.iter_mut())
             {
-                let lon = lon_or_u.to_radians();
-                let lat = lat_or_v.to_radians();
-
-                let unit_position =
-                    DVec3::new(-lat.cos() * lon.cos(), lat.sin(), lat.cos() * lon.sin());
-
-                let coordinate = Coordinate::from_unit_position(unit_position, true);
-
-                *success = *success
-                    && (unit_position.length() - 1.0).abs() < 0.00001
-                    && coordinate.face == self.face;
+                let unit_position = DVec3::new(*lon_or_u - 0.5, 0.0, *lat_or_v - 0.5);
+                let coordinate = Coordinate::from_unit_position(unit_position, false);
+                *success = *success && coordinate.face == self.face;
                 *lon_or_u = coordinate.uv.x;
                 *lat_or_v = coordinate.uv.y;
             }
@@ -167,31 +185,75 @@ impl Transformer for CubeTransformer {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn clone_custom_transformer(arg: *mut c_void, _: f64, _: f64) -> *mut c_void {
-    // this assumes, that the transformer is thread safe and stateless
-    // Otherwise, a new custom transformer should be created.
-    // However I have no idea, how it should be allocated and deallocated.
+struct PlanarPixelTransformer {
+    src_width: f64,
+    src_height: f64,
+}
 
-    // Since we do not implement the destroy transformer function, cleanup should be handled
-    // when the custom transformer is dropped.
-    // Also all fields of the custom transformer should be thread safe.
-    // However, we wrap the Reprojection transformer, which should in theory be cloned.
-    // It does not have a create similar function, but instead has to be serialized to XML.
-    // Using GDALDeserializeTransformer, a copy of this transformer can then be instantiated.
-    // Then, this new pointer has to be stored in a list inside of this custom transformer.
-    // Finally, in the drop method, all of these transformers have to be deallocated.
-    // When accessing the transformer, it should be looked up inside the list, based on the thread id.
+impl PlanarPixelTransformer {
+    fn new(src: &Dataset) -> PreprocessResult<Self> {
+        let (width, height) = src.raster_size();
+        Ok(Self {
+            src_width: width as f64,
+            src_height: height as f64,
+        })
+    }
+}
 
-    arg
+impl Transformer for PlanarPixelTransformer {
+    fn transform(
+        &mut self,
+        dst_to_src: bool,
+        x: &mut [f64],
+        y: &mut [f64],
+        _: &mut [f64],
+        success: &mut [bool],
+    ) -> PreprocessResult<()> {
+        if dst_to_src {
+            for (x, y, success) in izip!(x.iter_mut(), y.iter_mut(), success.iter_mut()) {
+                let in_bounds = (0.0..=1.0).contains(x) && (0.0..=1.0).contains(y);
+                *x = *x * self.src_width - 0.5;
+                *y = (1.0 - *y) * self.src_height - 0.5;
+                *success = *success
+                    && in_bounds
+                    && *x >= -0.5
+                    && *y >= -0.5
+                    && *x <= self.src_width - 0.5
+                    && *y <= self.src_height - 0.5;
+            }
+        } else {
+            for (x, y, success) in izip!(x.iter_mut(), y.iter_mut(), success.iter_mut()) {
+                let in_bounds = *x >= -0.5
+                    && *y >= -0.5
+                    && *x <= self.src_width - 0.5
+                    && *y <= self.src_height - 0.5;
+                *x = (*x + 0.5) / self.src_width;
+                *y = 1.0 - (*y + 0.5) / self.src_height;
+                *success = *success && in_bounds;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[repr(C)]
-pub struct CustomTransformer {
+struct GeorefCustomTransformer {
     src_inverse_geo_transform: GeoTransform,
     dst_geo_transform: Option<GeoTransform>,
     lon_lat_transformer: ReprojectionTransformer,
     cube_transformer: CubeTransformer,
+}
+
+#[repr(C)]
+struct PlanarCustomTransformer {
+    src_pixel_transformer: PlanarPixelTransformer,
+    dst_geo_transform: Option<GeoTransform>,
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn clone_custom_transformer(arg: *mut c_void, _: f64, _: f64) -> *mut c_void {
+    arg
 }
 
 impl CustomTransformer {
@@ -199,23 +261,35 @@ impl CustomTransformer {
         src: &Dataset,
         face: u32,
         dst_geo_transform: Option<GeoTransform>,
+        planar: bool,
     ) -> PreprocessResult<GDALCustomTransformer> {
-        Ok(GDALCustomTransformer {
-            info: GDALTransformerInfo::new(clone_custom_transformer),
-            inner: Box::new(Self {
+        let inner: Box<dyn Transformer> = if planar {
+            Box::new(PlanarCustomTransformer {
+                src_pixel_transformer: PlanarPixelTransformer::new(src)?,
+                dst_geo_transform,
+            })
+        } else {
+            Box::new(GeorefCustomTransformer {
                 src_inverse_geo_transform: src.geo_transform()?.invert()?,
                 dst_geo_transform,
                 lon_lat_transformer: ReprojectionTransformer::new(
                     &src.spatial_ref()?,
                     &SpatialRef::from_proj4("+proj=lonlat +ellps=WGS84 +datum=WGS84")?,
                 )?,
-                cube_transformer: CubeTransformer::new(face),
-            }),
+                cube_transformer: CubeTransformer::new(face, true),
+            })
+        };
+
+        Ok(GDALCustomTransformer {
+            info: GDALTransformerInfo::new(clone_custom_transformer),
+            inner,
         })
     }
 }
 
-impl Transformer for CustomTransformer {
+pub struct CustomTransformer;
+
+impl Transformer for GeorefCustomTransformer {
     fn transform(
         &mut self,
         dst_to_src: bool,
@@ -224,10 +298,6 @@ impl Transformer for CustomTransformer {
         z: &mut [f64],
         success: &mut [bool],
     ) -> PreprocessResult<()> {
-        // gdal suggest requires a bidirectional transformer from src pixel space, to destination uv space
-        // gdal warp requires a unidirectional transformer from destination pixel space, to src pixel space
-
-        // for some strange reason success is not correctly initialized
         for success in success.iter_mut() {
             *success = true;
         }
@@ -244,13 +314,40 @@ impl Transformer for CustomTransformer {
             self.src_inverse_geo_transform
                 .transform(dst_to_src, x, y, z, success)?;
         } else {
-            // this only runs during the suggest phase
-            // here we output uv coordinates directly, without applying a geo transform (we want to compute this)
             self.src_inverse_geo_transform
                 .transform(dst_to_src, x, y, z, success)?;
             self.lon_lat_transformer
                 .transform(dst_to_src, x, y, z, success)?;
             self.cube_transformer
+                .transform(dst_to_src, x, y, z, success)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl Transformer for PlanarCustomTransformer {
+    fn transform(
+        &mut self,
+        dst_to_src: bool,
+        x: &mut [f64],
+        y: &mut [f64],
+        z: &mut [f64],
+        success: &mut [bool],
+    ) -> PreprocessResult<()> {
+        for success in success.iter_mut() {
+            *success = true;
+        }
+
+        if dst_to_src {
+            if let Some(mut geo_transform) = self.dst_geo_transform {
+                geo_transform.transform(dst_to_src, x, y, z, success)?;
+            }
+
+            self.src_pixel_transformer
+                .transform(dst_to_src, x, y, z, success)?;
+        } else {
+            self.src_pixel_transformer
                 .transform(dst_to_src, x, y, z, success)?;
         }
 

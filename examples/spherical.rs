@@ -1,9 +1,15 @@
+use bevy::camera::Hdr;
+use bevy::light::{Atmosphere, atmosphere::ScatteringMedium};
+use bevy::pbr::{AtmosphereMode, AtmosphereSettings};
 use bevy::shader::ShaderRef;
 use bevy::window::WindowResolution;
 use bevy::{prelude::*, reflect::TypePath, render::render_resource::*};
 use bevy_terrain::prelude::*;
 
-const RADIUS: f64 = 6371000.0;
+/// Matches `TerrainShape::WGS84` used by the preprocessed earth dataset.
+const EARTH_MAJOR_RADIUS: f32 = 6378137.0;
+const EARTH_MINOR_RADIUS: f32 = 6356752.314245;
+const EARTH_ATMOSPHERE_SHELL: f32 = 100_000.0;
 
 #[derive(ShaderType, Clone)]
 struct GradientInfo {
@@ -21,7 +27,7 @@ pub struct CustomMaterial {
 
 impl Material for CustomMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/spherical.wgsl".into()
+        "shaders/spherical.wesl".into()
     }
 }
 
@@ -43,8 +49,9 @@ fn main() {
             TerrainDebugPlugin, // enable debug settings and controls
             TerrainPickingPlugin,
         ))
-        .insert_resource(TerrainSettings::new(vec!["albedo"]))
-        // .insert_resource(ClearColor(Color::WHITE))
+        .insert_resource(TerrainSettings::new(vec!["albedo", "landcover"]))
+        .insert_resource(GlobalAmbientLight::NONE)
+        .insert_resource(ClearColor(Color::BLACK))
         .add_systems(Startup, initialize)
         .run();
 }
@@ -53,6 +60,7 @@ fn main() {
 fn initialize(
     mut commands: Commands,
     mut images: ResMut<LoadingImages>,
+    mut scattering_mediums: ResMut<Assets<ScatteringMedium>>,
     asset_server: Res<AssetServer>,
 ) {
     let gradient1 = asset_server.load("textures/gradient1.png");
@@ -69,14 +77,36 @@ fn initialize(
         TextureFormat::Rgba8UnormSrgb,
     );
 
+    let earth_medium = scattering_mediums.add(ScatteringMedium::earth(256, 256));
+    let mut atmosphere = Atmosphere::earth(earth_medium);
+    atmosphere.inner_radius = EARTH_MINOR_RADIUS;
+    atmosphere.outer_radius = EARTH_MINOR_RADIUS + EARTH_ATMOSPHERE_SHELL;
+
     let mut view = Entity::PLACEHOLDER;
 
     commands.spawn_big_space(Grid::default(), |root| {
+        // Planet center at big_space origin. `CellCoord::default()` lets propagation keep
+        // `GlobalTransform` in sync when the floating origin recenters.
+        let atmosphere_entity = root
+            .spawn((
+                Transform::IDENTITY,
+                CellCoord::default(),
+                GlobalTransform::from_translation(Vec3::Z),
+            ))
+            .id();
+        root.commands().entity(atmosphere_entity).insert(atmosphere);
+
         view = root
             .spawn_spatial((
-                Transform::from_translation(-Vec3::X * RADIUS as f32 * 3.0)
+                Transform::from_translation(-Vec3::X * EARTH_MAJOR_RADIUS * 3.0)
                     .looking_to(Vec3::X, Vec3::Y),
-                DebugCameraController::new(RADIUS),
+                Camera3d::default(),
+                Hdr,
+                AtmosphereSettings {
+                    rendering_method: AtmosphereMode::Raymarched,
+                    ..default()
+                },
+                DebugCameraController::new(EARTH_MAJOR_RADIUS as f64),
                 OrbitalCameraController::default(),
             ))
             .id();

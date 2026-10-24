@@ -1,5 +1,7 @@
 use crate::{
-    dataset::{PreprocessContext, create_tile_dataset, load_tile_dataset_if_exists},
+    dataset::{
+        PreprocessContext, PreprocessResampleAlg, create_tile_dataset, load_tile_dataset_if_exists,
+    },
     gdal_extension::{CountingProgressCallback, ProgressCallback},
     result::{PreprocessError, PreprocessResult},
     stitch::stitch,
@@ -77,7 +79,10 @@ fn downsample<T: Copy + GdalType + PartialEq + NumCast>(
                         border_offset,
                         tile_size,
                         child_size,
-                        Some(ResampleAlg::Bilinear),
+                        Some(match context.resample_alg {
+                            PreprocessResampleAlg::Bilinear => ResampleAlg::Bilinear,
+                            PreprocessResampleAlg::Nearest => ResampleAlg::NearestNeighbour,
+                        }),
                     )?;
 
                     for ((child_y, child_x), &child_value) in

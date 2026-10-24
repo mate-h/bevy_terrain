@@ -79,17 +79,21 @@ pub fn reproject<T: Copy + GdalType>(
     Ok(faces)
 }
 
-pub fn compute_transforms<'a>(
+pub(crate) fn compute_transforms<'a>(
     src_dataset: &Dataset,
     context: &mut PreprocessContext,
     progress_callback: Option<&'a ProgressCallback>,
 ) -> PreprocessResult<Vec<Transform<'a>>> {
+    if context.planar {
+        return compute_planar_transforms(src_dataset, context, progress_callback);
+    }
+
     let mut transforms = Vec::with_capacity(6);
 
     let mut total_area = 0.0;
 
     for face in 0..6 {
-        let mut transformer = CustomTransformer::new(src_dataset, face, None)?;
+        let mut transformer = CustomTransformer::new(src_dataset, face, None, false)?;
 
         let Some(SuggestedWarpOutput {
             size,
@@ -179,8 +183,12 @@ pub fn compute_transforms<'a>(
         ]);
         transform.pixel_start = pixel_start.as_ivec2();
         transform.pixel_end = pixel_end.as_ivec2();
-        transform.transformer =
-            CustomTransformer::new(src_dataset, transform.face, Some(transform.geo_transform))?;
+        transform.transformer = CustomTransformer::new(
+            src_dataset,
+            transform.face,
+            Some(transform.geo_transform),
+            false,
+        )?;
     }
 
     let work_portions = transforms
@@ -208,4 +216,57 @@ pub fn compute_transforms<'a>(
     }
 
     Ok(transforms)
+}
+
+fn compute_planar_transforms<'a>(
+    src_dataset: &Dataset,
+    context: &mut PreprocessContext,
+    progress_callback: Option<&'a ProgressCallback>,
+) -> PreprocessResult<Vec<Transform<'a>>> {
+    let uv_start = DVec2::ZERO;
+    let uv_end = DVec2::ONE;
+
+    let max_lod = if let Some(lod_count) = context.lod_count {
+        lod_count - 1
+    } else {
+        let (width, height) = src_dataset.raster_size();
+        let max_dim = width.max(height) as f64;
+        let lod = (max_dim / context.attachment.center_size() as f64)
+            .log2()
+            .ceil()
+            .max(0.0) as u32;
+        context.lod_count = Some(lod + 1);
+        lod
+    };
+
+    let pixel_size = 1.0 / ((1 << max_lod) * context.attachment.center_size()) as f64;
+    let pixel_start = (uv_start / pixel_size).floor();
+    let pixel_end = (uv_end / pixel_size).ceil();
+    let size = (pixel_end - pixel_start).as_u64vec2();
+    let geo_transform = GeoTransform::from([
+        pixel_start.x * pixel_size,
+        pixel_size,
+        0.0,
+        pixel_start.y * pixel_size,
+        0.0,
+        pixel_size,
+    ]);
+
+    let transformer = CustomTransformer::new(src_dataset, 0, Some(geo_transform), true)?;
+
+    Ok(vec![Transform {
+        face: 0,
+        size,
+        uv_start,
+        uv_end,
+        lod: max_lod,
+        pixel_start: pixel_start.as_ivec2(),
+        pixel_end: pixel_end.as_ivec2(),
+        transformer,
+        geo_transform,
+        progress_callback: progress_callback.map(|progress_callback| {
+            Box::new(move |completion: f64| progress_callback(completion.clamp(0.0, 1.0)))
+                as Box<ProgressCallback>
+        }),
+    }])
 }

@@ -12,39 +12,34 @@ use bevy::{
     prelude::*,
     render::{
         Extract,
-        render_asset::RenderAssets,
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
-        render_resource::*,
-        renderer::RenderDevice,
-        storage::{GpuShaderBuffer, ShaderBuffer},
+        render_resource::{encase, *},
+        renderer::{RenderDevice, RenderQueue},
         texture::FallbackImage,
     },
 };
 use std::array;
 
-// Todo: use this once texture views can be used directly
 #[derive(AsBindGroup)]
 pub struct TerrainBindGroup {
     #[storage(0, visibility(all), read_only, buffer)]
-    terrain: Buffer,
-    #[uniform(1, visibility(all))]
-    attachments: AttachmentUniform,
-    #[sampler(2, visibility(all))]
-    #[texture(3, visibility(all), dimension = "2d_array")]
+    terrain_data: Buffer,
+    #[sampler(1, visibility(all))]
+    #[texture(2, visibility(all), dimension = "2d_array")]
     attachment0: Handle<Image>,
-    #[texture(4, visibility(all), dimension = "2d_array")]
+    #[texture(3, visibility(all), dimension = "2d_array")]
     attachment1: Handle<Image>,
-    #[texture(5, visibility(all), dimension = "2d_array")]
+    #[texture(4, visibility(all), dimension = "2d_array")]
     attachment2: Handle<Image>,
-    #[texture(6, visibility(all), dimension = "2d_array")]
+    #[texture(5, visibility(all), dimension = "2d_array")]
     attachment3: Handle<Image>,
-    #[texture(7, visibility(all), dimension = "2d_array")]
+    #[texture(6, visibility(all), dimension = "2d_array")]
     attachment4: Handle<Image>,
-    #[texture(8, visibility(all), dimension = "2d_array")]
+    #[texture(7, visibility(all), dimension = "2d_array")]
     attachment5: Handle<Image>,
-    #[texture(9, visibility(all), dimension = "2d_array")]
+    #[texture(8, visibility(all), dimension = "2d_array")]
     attachment6: Handle<Image>,
-    #[texture(10, visibility(all), dimension = "2d_array")]
+    #[texture(9, visibility(all), dimension = "2d_array")]
     attachment7: Handle<Image>,
 }
 
@@ -98,8 +93,14 @@ impl AttachmentUniform {
     }
 }
 
-/// The terrain config data that is available in shaders.
 #[derive(Default, ShaderType)]
+struct TerrainBindGroupStorage {
+    terrain: TerrainUniform,
+    attachments: AttachmentUniform,
+}
+
+/// The terrain config data that is available in shaders.
+#[derive(Default, Clone, Copy, ShaderType)]
 pub struct TerrainUniform {
     lod_count: u32,
     scale: Vec3,
@@ -131,26 +132,37 @@ impl TerrainUniform {
     }
 }
 
+pub fn extract_terrain_uniform(
+    mut uniforms: ResMut<TerrainComponents<TerrainUniform>>,
+    query: Extract<Query<(Entity, &TileAtlas, &GlobalTransform)>>,
+) {
+    for (entity, tile_atlas, global_transform) in &query {
+        uniforms.insert(entity, TerrainUniform::new(tile_atlas, global_transform));
+    }
+}
+
 pub struct GpuTerrain {
     pub(crate) terrain_bind_group: Option<BindGroup>,
 
-    terrain_buffer: Handle<ShaderBuffer>,
+    terrain_data_buffer: GpuBuffer<TerrainBindGroupStorage>,
     atlas_sampler: Sampler,
     attachment_textures: [TextureView; 8],
-    attachment_buffer: GpuBuffer<AttachmentUniform>,
 }
 
 impl GpuTerrain {
     fn new(
         device: &RenderDevice,
         fallback_image: &FallbackImage,
-        tile_atlas: &TileAtlas,
         gpu_tile_atlas: &GpuTileAtlas,
+        terrain: TerrainUniform,
     ) -> Self {
-        let attachment_buffer = GpuBuffer::create(
+        let terrain_data_buffer = GpuBuffer::create(
             device,
-            &AttachmentUniform::new(gpu_tile_atlas),
-            BufferUsages::UNIFORM,
+            &TerrainBindGroupStorage {
+                terrain,
+                attachments: AttachmentUniform::new(gpu_tile_atlas),
+            },
+            BufferUsages::STORAGE | BufferUsages::COPY_DST,
         );
 
         let attachment_textures = array::from_fn(|i| {
@@ -181,8 +193,7 @@ impl GpuTerrain {
         });
 
         Self {
-            terrain_buffer: tile_atlas.terrain_buffer.clone(),
-            attachment_buffer,
+            terrain_data_buffer,
             atlas_sampler,
             attachment_textures,
             terrain_bind_group: None,
@@ -195,35 +206,52 @@ impl GpuTerrain {
         mut gpu_terrains: ResMut<TerrainComponents<GpuTerrain>>,
         gpu_tile_atlases: Res<TerrainComponents<GpuTileAtlas>>,
         tile_atlases: Extract<Query<(Entity, &TileAtlas), Added<TileAtlas>>>,
+        terrain_uniforms: Res<TerrainComponents<TerrainUniform>>,
     ) {
         for (terrain, tile_atlas) in &tile_atlases {
             let gpu_tile_atlas = &gpu_tile_atlases[&terrain];
+            let terrain_uniform = terrain_uniforms
+                .get(&terrain)
+                .copied()
+                .unwrap_or_else(|| TerrainUniform::new(tile_atlas, &GlobalTransform::IDENTITY));
 
             gpu_terrains.insert(
                 terrain,
-                GpuTerrain::new(&device, &fallback_image, tile_atlas, gpu_tile_atlas),
+                GpuTerrain::new(&device, &fallback_image, gpu_tile_atlas, terrain_uniform),
             );
         }
     }
 
     pub(crate) fn prepare(
         device: Res<RenderDevice>,
+        queue: Res<RenderQueue>,
         pipeline_cache: Res<PipelineCache>,
-        buffers: Res<RenderAssets<GpuShaderBuffer>>,
         mut gpu_terrains: ResMut<TerrainComponents<GpuTerrain>>,
+        terrain_uniforms: Res<TerrainComponents<TerrainUniform>>,
     ) {
         let layout = pipeline_cache
             .get_bind_group_layout(&TerrainBindGroup::bind_group_layout_descriptor(&device));
-        for gpu_terrain in &mut gpu_terrains.values_mut() {
-            let terrain_buffer = buffers.get(&gpu_terrain.terrain_buffer).unwrap();
 
-            // Todo: be smarter about bind group recreation
+        for (&entity, gpu_terrain) in gpu_terrains.iter_mut() {
+            let Some(terrain) = terrain_uniforms.get(&entity) else {
+                continue;
+            };
+
+            let mut scratch = vec![0u8; TerrainUniform::min_size().get() as usize];
+            encase::StorageBuffer::new(&mut scratch)
+                .write(terrain)
+                .unwrap();
+            queue.write_buffer(&gpu_terrain.terrain_data_buffer, 0, &scratch);
+
+            if gpu_terrain.terrain_bind_group.is_some() {
+                continue;
+            }
+
             gpu_terrain.terrain_bind_group = Some(device.create_bind_group(
                 "terrain_bind_group",
                 &layout,
                 &BindGroupEntries::sequential((
-                    terrain_buffer.buffer.as_entire_binding(),
-                    &gpu_terrain.attachment_buffer,
+                    &gpu_terrain.terrain_data_buffer,
                     &gpu_terrain.atlas_sampler,
                     &gpu_terrain.attachment_textures[0],
                     &gpu_terrain.attachment_textures[1],

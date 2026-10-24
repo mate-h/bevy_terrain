@@ -1,9 +1,8 @@
-#define_import_path bevy_terrain::attachments
 
-#import bevy_terrain::types::{AtlasTile, TangentSpace, AttachmentConfig, SampleUV, WorldCoordinate}
-#import bevy_terrain::bindings::{terrain, terrain_view, terrain_sampler, attachments, height_attachment}
+import bevy_terrain::shaders::types::{AtlasTile, TangentSpace, AttachmentConfig, SampleUV, WorldCoordinate};
+import bevy_terrain::shaders::bindings::{terrain_data, terrain_view, terrain_sampler, height_attachment};
 
-#ifdef FRAGMENT
+@if(FRAGMENT)
 fn compute_sample_uv(tile: AtlasTile, attachment: AttachmentConfig) -> SampleUV {
     let uv    = tile.coordinate.uv * attachment.scale + attachment.offset;
     let lod   = log2(attachment.texture_size * max(length(tile.coordinate.uv_dx), length(tile.coordinate.uv_dy)));
@@ -13,30 +12,40 @@ fn compute_sample_uv(tile: AtlasTile, attachment: AttachmentConfig) -> SampleUV 
 
     return SampleUV(uv, dx, dy);
 }
-#else
+@if(!(FRAGMENT))
 fn compute_sample_uv(tile: AtlasTile, attachment: AttachmentConfig) -> SampleUV {
     let uv = tile.coordinate.uv * attachment.scale + attachment.offset;
 
     return SampleUV(uv);
 }
-#endif
+
+// Samples an arbitrary attachment at the tile's coordinate, applying the same LOD / blend
+// handling as height sampling. Pass the attachment's config (`terrain_data.attachments.<label>`)
+// together with its texture global (`<label>_attachment`), e.g.
+//
+//     let density = sample_attachment(terrain_data.attachments.grass_density, grass_density_attachment, tile).x;
+//
+// This uses linear filtering, so it is meant for continuous data (density, blend weights, ...).
+// For integer id attachments, gather the raw texels instead (see `compute_sample_uv` +
+// `textureGather` / `textureLoad`), since filtering would blend distinct ids into meaningless
+// intermediate values.
+fn sample_attachment(attachment: AttachmentConfig, attachment_texture: texture_2d_array<f32>, tile: AtlasTile) -> vec4<f32> {
+    let uv = compute_sample_uv(tile, attachment);
+
+    @if((FRAGMENT) && (SAMPLE_GRAD))
+    return textureSampleGrad(attachment_texture, terrain_sampler, uv.uv, tile.index, uv.dx, uv.dy);
+    @if((FRAGMENT) && (!(SAMPLE_GRAD)))
+    return textureSampleLevel(attachment_texture, terrain_sampler, uv.uv, tile.index, tile.blend_ratio);
+    @if(!(FRAGMENT))
+    return textureSampleLevel(attachment_texture, terrain_sampler, uv.uv, tile.index, 0.0);
+}
 
 fn sample_height(tile: AtlasTile) -> f32 {
-    let uv = compute_sample_uv(tile, attachments.height);
-
-#ifdef FRAGMENT
-#ifdef SAMPLE_GRAD
-    return terrain.height_scale * textureSampleGrad(height_attachment, terrain_sampler, uv.uv, tile.index, uv.dx, uv.dy).x;
-#else
-    return terrain.height_scale * textureSampleLevel(height_attachment, terrain_sampler, uv.uv, tile.index, tile.blend_ratio).x;
-#endif
-#else
-    return terrain.height_scale * textureSampleLevel(height_attachment, terrain_sampler, uv.uv, tile.index, 0.0).x;
-#endif
+    return terrain_data.terrain.height_scale * sample_attachment(terrain_data.attachments.height, height_attachment, tile).x;
 }
 
 fn sample_height_mask(tile: AtlasTile) -> bool {
-    let attachment = attachments.height;
+    let attachment = terrain_data.attachments.height;
 
     if (attachment.mask == 0) { return false; }
 
@@ -47,22 +56,25 @@ fn sample_height_mask(tile: AtlasTile) -> bool {
     return any(mask == vec4<u32>(0));
 }
 
-#ifdef FRAGMENT
+@if(FRAGMENT)
 fn sample_surface_gradient(tile: AtlasTile, tangent_space: TangentSpace) -> vec3<f32> {
-    let attachment = attachments.height;
+    let attachment = terrain_data.attachments.height;
     let uv         = compute_sample_uv(tile, attachment);
     let scale      = max(length(uv.dx), length(uv.dy));
     let step       = 0.5 * scale;
 
-#ifdef SAMPLE_GRAD
+    @if(SAMPLE_GRAD)
     let height   = textureSampleGrad(height_attachment, terrain_sampler, uv.uv + vec2<f32>(-step, -step), tile.index, uv.dx, uv.dy).x;
+    @if(SAMPLE_GRAD)
     let height_u = textureSampleGrad(height_attachment, terrain_sampler, uv.uv + vec2<f32>( step, -step), tile.index, uv.dx, uv.dy).x;
+    @if(SAMPLE_GRAD)
     let height_v = textureSampleGrad(height_attachment, terrain_sampler, uv.uv + vec2<f32>(-step,  step), tile.index, uv.dx, uv.dy).x;
-#else
+    @if(!(SAMPLE_GRAD))
     let height   = textureSampleLevel(height_attachment, terrain_sampler, uv.uv + vec2<f32>(-step, -step), tile.index, tile.blend_ratio).x;
+    @if(!(SAMPLE_GRAD))
     let height_u = textureSampleLevel(height_attachment, terrain_sampler, uv.uv + vec2<f32>( step, -step), tile.index, tile.blend_ratio).x;
+    @if(!(SAMPLE_GRAD))
     let height_v = textureSampleLevel(height_attachment, terrain_sampler, uv.uv + vec2<f32>(-step,  step), tile.index, tile.blend_ratio).x;
-#endif
 
     var height_duv = vec2<f32>(height_u - height, height_v - height) / scale;
 
@@ -71,7 +83,7 @@ fn sample_surface_gradient(tile: AtlasTile, tangent_space: TangentSpace) -> vec3
     let lod   = max(0.0, log2(attachment.texture_size * scale));
     let ratio = saturate((lod - start) / (end - start));
 
-    if (ratio > 0.0 && tile.coordinate.lod == terrain.lod_count - 1) {
+    if (ratio > 0.0 && tile.coordinate.lod == terrain_data.terrain.lod_count - 1) {
         let coord       = attachment.texture_size * uv.uv - 0.5;
         let coord_floor = floor(coord);
         let center_uv   = (coord_floor + 0.5) / attachment.texture_size;
@@ -103,9 +115,8 @@ fn sample_surface_gradient(tile: AtlasTile, tangent_space: TangentSpace) -> vec3
 //    let height_dx = dpdx(height);
 //    let height_dy = dpdy(height);
 
-    return terrain.height_scale * tangent_space.scale * (height_dx * tangent_space.tangent_x + height_dy * tangent_space.tangent_y);
+    return terrain_data.terrain.height_scale * tangent_space.scale * (height_dx * tangent_space.tangent_x + height_dy * tangent_space.tangent_y);
 }
-#endif
 
 fn compute_slope(world_normal: vec3<f32>, surface_gradient: vec3<f32>) -> f32 {
     let normal  = normalize(world_normal - surface_gradient);

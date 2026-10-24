@@ -1,4 +1,4 @@
-#import bevy_terrain::preprocessing::{AtlasTile, atlas, attachment, inside, pixel_coords, pixel_value, process_entry, is_border}
+import bevy_terrain::shaders::preprocess::preprocessing::{AtlasTile, atlas, attachment, inside, pixel_coords, pixel_value, process_entry, is_border};
 
 struct DownsampleData {
     tile: AtlasTile,

@@ -41,6 +41,24 @@ impl FromStr for PreprocessNoData {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub enum PreprocessResampleAlg {
+    #[default]
+    Bilinear,
+    Nearest,
+}
+
+impl FromStr for PreprocessResampleAlg {
+    type Err = PreprocessError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "bilinear" | "linear" => Ok(PreprocessResampleAlg::Bilinear),
+            "nearest" | "near" => Ok(PreprocessResampleAlg::Nearest),
+            other => Err(PreprocessError::InvalidResampleAlg(other.to_string())),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum PreprocessDataType {
     Source,
@@ -83,6 +101,12 @@ pub struct PreprocessContext {
     pub(crate) lod_count: Option<u32>,
     pub(crate) attachment_label: AttachmentLabel,
     pub(crate) attachment: AttachmentConfig,
+    pub(crate) resample_alg: PreprocessResampleAlg,
+    pub(crate) sparse: bool,
+    pub(crate) tile_manifest: Option<Vec<TileCoordinate>>,
+    pub(crate) src_path: PathBuf,
+    pub(crate) planar: bool,
+    pub(crate) side_length: Option<f64>,
 }
 
 impl PreprocessContext {
@@ -102,7 +126,20 @@ impl PreprocessContext {
             border_size,
             mip_level_count,
             format,
+            resample_alg,
+            sparse,
+            planar,
+            side_length,
         } = args;
+
+        if planar && side_length.is_none() {
+            return Err(PreprocessError::SideLengthRequired);
+        }
+        if let Some(side_length) = side_length
+            && side_length <= 0.0
+        {
+            return Err(PreprocessError::InvalidSideLength);
+        }
 
         PreprocessContext::initialize(
             terrain_path,
@@ -122,6 +159,11 @@ impl PreprocessContext {
             fill_radius,
             create_mask,
             overwrite,
+            resample_alg,
+            sparse,
+            None,
+            planar,
+            side_length,
         )
     }
 
@@ -140,6 +182,11 @@ impl PreprocessContext {
         fill_radius: f32,
         create_mask: bool,
         overwrite: bool,
+        resample_alg: PreprocessResampleAlg,
+        sparse: bool,
+        tile_manifest: Option<Vec<TileCoordinate>>,
+        planar: bool,
+        side_length: Option<f64>,
     ) -> PreprocessResult<(Dataset, Self)> {
         let mut src_datasets: Vec<Dataset> = src_path
             .iter()
@@ -210,6 +257,8 @@ impl PreprocessContext {
             Some(path) => path,
         };
 
+        let src_path = src_path.into_iter().next().unwrap_or_default();
+
         Ok((
             src_dataset,
             Self {
@@ -228,6 +277,12 @@ impl PreprocessContext {
                 attachment,
                 terrain_path,
                 lod_count,
+                resample_alg,
+                sparse,
+                tile_manifest,
+                src_path,
+                planar,
+                side_length,
             },
         ))
     }

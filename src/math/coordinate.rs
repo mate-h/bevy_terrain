@@ -187,7 +187,9 @@ impl fmt::Display for TileCoordinate {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug, ShaderType)]
+/// A [`Coordinate`] snapped to a LOD grid. Uploaded with the terrain view for the high-precision path.
+#[repr(C)]
+#[derive(Copy, Clone, Default, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ViewCoordinate {
     pub xy: IVec2,
     pub uv: Vec2,

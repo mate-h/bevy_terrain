@@ -1,7 +1,9 @@
 use crate::{
-    math::{TileCoordinate, ViewCoordinate},
-    render::TerrainTilingPrepassPipelines,
-    terrain_data::{TileTree, TileTreeEntry},
+    debug::DebugTerrain,
+    math::{SurfaceApproximation, TileCoordinate, ViewCoordinate},
+    render::{TerrainTilingPrepassPipelines, terrain_shadow::GpuTerrainShadow},
+    terrain_data::TileTree,
+    terrain_shadow::TerrainShadowUniform,
     terrain_view::TerrainViewComponents,
 };
 use bevy::{
@@ -9,13 +11,16 @@ use bevy::{
         query::ROQueryItem,
         system::{StaticSystemParam, SystemParamItem, lifetimeless::SRes},
     },
+    pbr::ExtractedAtmosphere,
     prelude::*,
     render::{
         Extract,
+        render_asset::RenderAssets,
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
-        render_resource::*,
+        render_resource::{binding_types::*, *},
+        material_bind_groups::FallbackBuffer,
         renderer::RenderDevice,
-        storage::ShaderBuffer,
+        storage::{GpuShaderBuffer, ShaderBuffer},
         sync_world::MainEntity,
     },
 };
@@ -47,12 +52,40 @@ pub struct TerrainViewBindGroup {
     // Todo: replace with updatable uniform buffer
     #[storage(0, visibility(vertex, fragment), read_only)]
     pub(crate) terrain_view: Handle<ShaderBuffer>,
-    #[storage(1, visibility(vertex, fragment), read_only)]
+    #[storage(1, visibility(vertex), read_only)]
     pub(crate) approximate_height: Handle<ShaderBuffer>,
     #[storage(2, visibility(vertex, fragment), read_only)]
     pub(crate) tile_tree: Handle<ShaderBuffer>,
     #[storage(3, visibility(vertex, fragment), read_only, buffer)]
     pub(crate) geometry_tiles: Buffer,
+}
+
+/// Same bindings as [`TerrainViewBindGroup`], but exposes `tile_tree` to the fragment stage for
+/// debug visualizations (`SHOW_TILE_TREE`).
+#[derive(AsBindGroup)]
+pub struct TerrainViewBindGroupDebug {
+    #[storage(0, visibility(vertex, fragment), read_only)]
+    pub(crate) terrain_view: Handle<ShaderBuffer>,
+    #[storage(1, visibility(vertex), read_only)]
+    pub(crate) approximate_height: Handle<ShaderBuffer>,
+    #[storage(2, visibility(vertex, fragment), read_only)]
+    pub(crate) tile_tree: Handle<ShaderBuffer>,
+    #[storage(3, visibility(vertex, fragment), read_only, buffer)]
+    pub(crate) geometry_tiles: Buffer,
+}
+
+/// Appends the terrain shadow map bindings (texture, sampler, params) to the
+/// derived terrain view layout, so the fragment shader can sample the shadow map
+/// under the `TERRAIN_SHADOW` shader def.
+pub(crate) fn extend_terrain_view_layout(
+    mut descriptor: BindGroupLayoutDescriptor,
+) -> BindGroupLayoutDescriptor {
+    descriptor.entries.extend([
+        texture_2d(TextureSampleType::Float { filterable: true }).build(4, ShaderStages::FRAGMENT),
+        sampler(SamplerBindingType::Filtering).build(5, ShaderStages::FRAGMENT),
+        uniform_buffer::<TerrainShadowUniform>(false).build(6, ShaderStages::FRAGMENT),
+    ]);
+    descriptor
 }
 
 #[derive(ShaderType)]
@@ -80,13 +113,36 @@ pub(crate) struct PrepassState {
     final_index: i32,
 }
 
-#[derive(Default, ShaderType)]
-pub struct TileTreeUniform {
-    #[shader(size(runtime))]
-    pub(crate) entries: Vec<TileTreeEntry>,
+/// GPU layout of the WGSL `SurfaceApproximation`. `Vec3A` gives each
+/// `vec3<f32>` its 16-byte storage stride.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct GpuSurfaceApproximation {
+    p: Vec3A,
+    p_du: Vec3A,
+    p_dv: Vec3A,
+    p_duu: Vec3A,
+    p_duv: Vec3A,
+    p_dvv: Vec3A,
 }
 
-#[derive(ShaderType)]
+impl From<&SurfaceApproximation> for GpuSurfaceApproximation {
+    fn from(approximation: &SurfaceApproximation) -> Self {
+        GpuSurfaceApproximation {
+            p: approximation.p.into(),
+            p_du: approximation.p_du.into(),
+            p_dv: approximation.p_dv.into(),
+            p_duu: approximation.p_duu.into(),
+            p_duv: approximation.p_duv.into(),
+            p_dvv: approximation.p_dvv.into(),
+        }
+    }
+}
+
+/// GPU layout of the WGSL `TerrainView` struct in `types.wesl`; keep the
+/// fields in sync.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct TerrainViewUniform {
     tree_size: u32,
     geometry_tile_count: u32,
@@ -103,10 +159,16 @@ pub(crate) struct TerrainViewUniform {
     face: u32,
     lod: u32,
     coordinates: [ViewCoordinate; 6],
-    world_position: Vec3,
+    _pad0: [f32; 2],
+    world_position: Vec3A,
     half_spaces: [Vec4; 6],
-    surface_approximation: [crate::math::SurfaceApproximation; 6],
+    surface_approximation: [GpuSurfaceApproximation; 6],
 }
+
+// Sized for the HIGH_PRECISION layout. Without that shader def the WGSL struct
+// ends at `half_spaces` and the shader ignores the rest of the buffer.
+const _: () = assert!(size_of::<TerrainViewUniform>() == 848);
+const _: () = assert!(core::mem::offset_of!(TerrainViewUniform, world_position) == 160);
 
 impl From<&TileTree> for TerrainViewUniform {
     fn from(tile_tree: &TileTree) -> Self {
@@ -128,10 +190,13 @@ impl From<&TileTree> for TerrainViewUniform {
             coordinates: tile_tree
                 .view_coordinates
                 .map(|view_coordinate| ViewCoordinate::new(view_coordinate, tile_tree.view_lod)),
-            world_position: tile_tree.view_world_position,
+            _pad0: [0.0; 2],
+            world_position: tile_tree.view_world_position.into(),
             half_spaces: tile_tree.half_spaces,
-
-            surface_approximation: tile_tree.surface_approximation.clone(),
+            surface_approximation: tile_tree
+                .surface_approximation
+                .each_ref()
+                .map(GpuSurfaceApproximation::from),
         }
     }
 }
@@ -143,6 +208,11 @@ pub struct GpuTerrainView {
     pub(crate) indirect_bind_group: Option<BindGroup>,
     pub(crate) prepass_view_bind_group: Option<BindGroup>,
     pub(crate) terrain_view_bind_group: Option<BindGroup>,
+    terrain_view_debug_layout: Option<bool>,
+    /// Ids of the render-asset buffers `prepass_view_bind_group` was built
+    /// from — those can be reallocated on re-prepare, the directly-owned
+    /// buffers never change.
+    prepass_view_buffers: Option<(BufferId, BufferId, BufferId)>,
 
     indirect: IndirectBindGroup,
     prepass_view: PrepassViewBindGroup,
@@ -206,6 +276,8 @@ impl GpuTerrainView {
             indirect_bind_group: None,
             prepass_view_bind_group: None,
             terrain_view_bind_group: None,
+            terrain_view_debug_layout: None,
+            prepass_view_buffers: None,
         }
     }
 
@@ -227,18 +299,62 @@ impl GpuTerrainView {
         device: Res<RenderDevice>,
         pipeline_cache: Res<PipelineCache>,
         prepass_pipeline: Res<TerrainTilingPrepassPipelines>,
+        debug: Option<Res<DebugTerrain>>,
+        atmosphere_cameras: Query<Has<ExtractedAtmosphere>, With<Camera3d>>,
+        buffers: Res<RenderAssets<GpuShaderBuffer>>,
+        gpu_terrain_shadows: Res<TerrainViewComponents<GpuTerrainShadow>>,
         mut gpu_terrain_views: ResMut<TerrainViewComponents<GpuTerrainView>>,
-        mut param: StaticSystemParam<<TerrainViewBindGroup as AsBindGroup>::Param>,
     ) {
-        for gpu_terrain_view in &mut gpu_terrain_views.values_mut() {
-            // Todo: be smarter about bind group recreation
-            let bind_group = gpu_terrain_view.terrain_view.as_bind_group(
-                &prepass_pipeline.terrain_view_layout,
-                &device,
-                &pipeline_cache,
-                &mut param,
-            );
-            gpu_terrain_view.terrain_view_bind_group = bind_group.ok().map(|b| b.bind_group);
+        let show_tile_tree = debug.is_some_and(|debug| debug.show_tile_tree);
+        let atmosphere_active = atmosphere_cameras.iter().any(|has| has);
+        let use_debug_layout = show_tile_tree && !atmosphere_active;
+
+        for (&(terrain, view), gpu_terrain_view) in gpu_terrain_views.iter_mut() {
+            let terrain_view = &gpu_terrain_view.terrain_view;
+
+            let (
+                Some(terrain_view_buffer),
+                Some(approximate_height_buffer),
+                Some(tile_tree_buffer),
+                Some(gpu_terrain_shadow),
+            ) = (
+                buffers.get(&terrain_view.terrain_view),
+                buffers.get(&terrain_view.approximate_height),
+                buffers.get(&terrain_view.tile_tree),
+                gpu_terrain_shadows.get(&(terrain, view)),
+            )
+            else {
+                gpu_terrain_view.terrain_view_bind_group = None;
+                gpu_terrain_view.terrain_view_debug_layout = None;
+                continue;
+            };
+
+            if gpu_terrain_view.terrain_view_bind_group.is_some()
+                && gpu_terrain_view.terrain_view_debug_layout == Some(use_debug_layout)
+            {
+                continue;
+            }
+
+            let layout = if use_debug_layout {
+                &prepass_pipeline.terrain_view_layout_debug
+            } else {
+                &prepass_pipeline.terrain_view_layout
+            };
+
+            gpu_terrain_view.terrain_view_bind_group = Some(device.create_bind_group(
+                "terrain_view_bind_group",
+                &pipeline_cache.get_bind_group_layout(layout),
+                &BindGroupEntries::sequential((
+                    terrain_view_buffer.buffer.as_entire_binding(),
+                    approximate_height_buffer.buffer.as_entire_binding(),
+                    tile_tree_buffer.buffer.as_entire_binding(),
+                    terrain_view.geometry_tiles.as_entire_binding(),
+                    &gpu_terrain_shadow.texture_view,
+                    &gpu_terrain_shadow.sampler,
+                    &gpu_terrain_shadow.params_buffer,
+                )),
+            ));
+            gpu_terrain_view.terrain_view_debug_layout = Some(use_debug_layout);
         }
     }
 
@@ -247,6 +363,8 @@ impl GpuTerrainView {
         pipeline_cache: Res<PipelineCache>,
         prepass_pipeline: Res<TerrainTilingPrepassPipelines>,
         mut gpu_terrain_views: ResMut<TerrainViewComponents<GpuTerrainView>>,
+        fallback_buffer: Res<FallbackBuffer>,
+        shader_buffers: Res<RenderAssets<GpuShaderBuffer>>,
         mut param: StaticSystemParam<<IndirectBindGroup as AsBindGroup>::Param>,
     ) {
         for gpu_terrain_view in &mut gpu_terrain_views.values_mut() {
@@ -259,6 +377,8 @@ impl GpuTerrainView {
                         &prepass_pipeline.indirect_layout,
                         &device,
                         &pipeline_cache,
+                        &fallback_buffer,
+                        &shader_buffers,
                         &mut param,
                     )
                     .ok()
@@ -271,18 +391,48 @@ impl GpuTerrainView {
         device: Res<RenderDevice>,
         pipeline_cache: Res<PipelineCache>,
         prepass_pipeline: Res<TerrainTilingPrepassPipelines>,
+        buffers: Res<RenderAssets<GpuShaderBuffer>>,
         mut gpu_terrain_views: ResMut<TerrainViewComponents<GpuTerrainView>>,
-        mut param: StaticSystemParam<<PrepassViewBindGroup as AsBindGroup>::Param>,
     ) {
         for gpu_terrain_view in gpu_terrain_views.values_mut() {
-            // Todo: be smarter about bind group recreation
-            let bind_group = gpu_terrain_view.prepass_view.as_bind_group(
-                &prepass_pipeline.prepass_view_layout,
-                &device,
-                &pipeline_cache,
-                &mut param,
+            let prepass_view = &gpu_terrain_view.prepass_view;
+
+            let (Some(terrain_view_buffer), Some(approximate_height_buffer), Some(tile_tree_buffer)) = (
+                buffers.get(&prepass_view.terrain_view),
+                buffers.get(&prepass_view.approximate_height),
+                buffers.get(&prepass_view.tile_tree),
+            ) else {
+                gpu_terrain_view.prepass_view_bind_group = None;
+                gpu_terrain_view.prepass_view_buffers = None;
+                continue;
+            };
+
+            let buffer_ids = (
+                terrain_view_buffer.buffer.id(),
+                approximate_height_buffer.buffer.id(),
+                tile_tree_buffer.buffer.id(),
             );
-            gpu_terrain_view.prepass_view_bind_group = bind_group.ok().map(|b| b.bind_group);
+            if gpu_terrain_view.prepass_view_bind_group.is_some()
+                && gpu_terrain_view.prepass_view_buffers == Some(buffer_ids)
+            {
+                continue;
+            }
+
+            // Entries mirror the `AsBindGroup` field order of
+            // `PrepassViewBindGroup` (bindings 0..=5).
+            gpu_terrain_view.prepass_view_bind_group = Some(device.create_bind_group(
+                "prepass_view_bind_group",
+                &pipeline_cache.get_bind_group_layout(&prepass_pipeline.prepass_view_layout),
+                &BindGroupEntries::sequential((
+                    terrain_view_buffer.buffer.as_entire_binding(),
+                    approximate_height_buffer.buffer.as_entire_binding(),
+                    tile_tree_buffer.buffer.as_entire_binding(),
+                    prepass_view.final_tiles.as_entire_binding(),
+                    prepass_view.temporary_tiles.as_entire_binding(),
+                    prepass_view.state.as_entire_binding(),
+                )),
+            ));
+            gpu_terrain_view.prepass_view_buffers = Some(buffer_ids);
         }
     }
 }

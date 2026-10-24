@@ -1,3 +1,9 @@
+//! Cursor hits against the terrain mesh.
+//!
+//! Add [`TerrainPickingPlugin`] and put [`PickingData`] on the camera. After the GPU readback,
+//! `translation` is the hit in that camera's transform space, or `None` on a miss. With
+//! `big_space`, pair it with `cell`.
+
 use crate::{
     render::{TerrainViewDepthTexture, terrain_pass},
     shaders::PICKING_SHADER,
@@ -17,7 +23,7 @@ use bevy::{
         render_asset::RenderAssets,
         render_resource::{
             binding_types::{
-                storage_buffer, texture_2d_multisampled, texture_depth_2d_multisampled,
+                storage_buffer_sized, texture_2d_multisampled, texture_depth_2d_multisampled,
             },
             *,
         },
@@ -28,8 +34,10 @@ use bevy::{
     transform::TransformSystems,
     window::PrimaryWindow,
 };
+#[cfg(feature = "big_space")]
 use big_space::prelude::CellCoord;
 
+#[cfg(feature = "big_space")]
 pub fn picking_system(
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     window: Query<&Window, With<PrimaryWindow>>,
@@ -51,8 +59,39 @@ pub fn picking_system(
             stencil: 255,
             world_from_clip: global_transform.to_matrix() * camera.clip_from_view().inverse(),
             cell: IVec3::new(cell.x, cell.y, cell.z),
+            ..default()
         };
-        buffer.set_data(data);
+        buffer.clear();
+        buffer.extend_from_slice(&[data]);
+    }
+}
+
+#[cfg(not(feature = "big_space"))]
+pub fn picking_system(
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+    window: Query<&Window, With<PrimaryWindow>>,
+    camera: Query<(&Camera, &GlobalTransform, &PickingData)>,
+) {
+    let Ok(window) = window.single() else {
+        return;
+    };
+    let Some(position) = window.cursor_position() else {
+        return;
+    };
+    let cursor_coords = Vec2::new(position.x, window.size().y - position.y) / window.size();
+
+    for (camera, global_transform, picking_data) in &camera {
+        let mut buffer = buffers.get_mut(&picking_data.buffer).unwrap();
+        let data = GpuPickingData {
+            cursor_coords,
+            depth: 0.0,
+            stencil: 255,
+            world_from_clip: global_transform.to_matrix() * camera.clip_from_view().inverse(),
+            cell: IVec3::ZERO,
+            ..default()
+        };
+        buffer.clear();
+        buffer.extend_from_slice(&[data]);
     }
 }
 
@@ -60,31 +99,34 @@ pub fn picking_readback(on: On<ReadbackComplete>, mut picking_data: Query<&mut P
     let GpuPickingData {
         cursor_coords,
         depth,
-        stencil: _stencil,
         world_from_clip,
         cell,
-    } = on.event().to_shader_type();
+        ..
+    } = bytemuck::pod_read_unaligned(&on.event().data);
 
     let ndc_coords = (2.0 * cursor_coords - 1.0).extend(depth);
 
     let mut picking_data = picking_data.get_mut(on.event().entity).unwrap();
     picking_data.cursor_coords = cursor_coords;
-    picking_data.cell = CellCoord::new(cell.x, cell.y, cell.z);
+    #[cfg(feature = "big_space")]
+    {
+        picking_data.cell = CellCoord::new(cell.x, cell.y, cell.z);
+    }
+    #[cfg(not(feature = "big_space"))]
+    {
+        picking_data.cell = cell;
+    }
     picking_data.translation = (depth > 0.0).then(|| world_from_clip.project_point3(ndc_coords));
     picking_data.world_from_clip = world_from_clip;
-
-    // dbg!(cursor_coords);
-    // dbg!(1.0 / depth);
-    // dbg!(stencil);
 }
 
 pub fn picking_hook(mut world: DeferredWorld, context: HookContext) {
     let mut buffers = world.resource_mut::<Assets<ShaderBuffer>>();
     let mut buffer = ShaderBuffer::with_size(
-        GpuPickingData::min_size().get() as usize,
+        size_of::<GpuPickingData>() as u64,
         RenderAssetUsages::default(),
     );
-    buffer.buffer_description.usage |= BufferUsages::COPY_SRC;
+    buffer.buffer_usage |= BufferUsages::COPY_SRC;
     let buffer = buffers.add(buffer);
 
     world
@@ -97,21 +139,29 @@ pub fn picking_hook(mut world: DeferredWorld, context: HookContext) {
     picking_data.buffer = buffer;
 }
 
+/// Cursor hit against the terrain, stored on the camera.
+///
+/// [`TerrainPickingPlugin`] fills `translation` after a GPU readback. `None` means the cursor
+/// missed. With `big_space`, `cell` is the grid cell of that hit and `translation` is the
+/// position inside it.
 #[derive(Default, Clone, Component)]
 #[component(on_add = picking_hook)]
 pub struct PickingData {
     pub cursor_coords: Vec2,
-    pub cell: CellCoord,           // cell of floating origin (camera)
-    pub translation: Option<Vec3>, // relative to floating origin cell
+    #[cfg(feature = "big_space")]
+    pub cell: CellCoord,
+    #[cfg(not(feature = "big_space"))]
+    pub cell: IVec3,
+    pub translation: Option<Vec3>,
     pub world_from_clip: Mat4,
     buffer: Handle<ShaderBuffer>,
 }
 
-impl SyncComponent for PickingData {
+impl SyncComponent<RenderApp> for PickingData {
     type Target = GpuPickingBuffer;
 }
 
-impl ExtractComponent for PickingData {
+impl ExtractComponent<RenderApp> for PickingData {
     type QueryData = &'static PickingData;
     type QueryFilter = ();
     type Out = GpuPickingBuffer;
@@ -126,14 +176,18 @@ impl ExtractComponent for PickingData {
 #[derive(Component)]
 pub struct GpuPickingBuffer(AssetId<ShaderBuffer>);
 
-#[derive(Default, Debug, Clone, ShaderType)]
+#[repr(C)]
+#[derive(Default, Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct GpuPickingData {
     pub cursor_coords: Vec2,
     pub depth: f32,
     pub stencil: u32,
     pub world_from_clip: Mat4,
     pub cell: IVec3,
+    _pad: u32,
 }
+
+const _: () = assert!(size_of::<GpuPickingData>() == 96);
 
 #[derive(Resource)]
 pub struct PickingPipeline {
@@ -151,7 +205,10 @@ impl FromWorld for PickingPipeline {
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::COMPUTE,
                 (
-                    storage_buffer::<GpuPickingData>(false),
+                    storage_buffer_sized(
+                        false,
+                        BufferSize::new(size_of::<GpuPickingData>() as u64),
+                    ),
                     texture_depth_2d_multisampled(),
                     texture_2d_multisampled(TextureSampleType::Uint),
                 ),
@@ -166,6 +223,7 @@ impl FromWorld for PickingPipeline {
             shader_defs: vec![],
             entry_point: Some("pick".into()),
             zero_initialize_workgroup_memory: false,
+            constants: vec![],
         });
 
         Self { id, layout }
@@ -208,6 +266,7 @@ pub fn picking_pass(
     pass.dispatch_workgroups(1, 1, 1);
 }
 
+/// Reads the terrain depth under the cursor into [`PickingData`] on each camera that has it.
 pub struct TerrainPickingPlugin;
 
 impl Plugin for TerrainPickingPlugin {

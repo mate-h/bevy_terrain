@@ -1,4 +1,4 @@
-#import bevy_terrain::preprocessing::{AtlasTile, INVALID_ATLAS_INDEX, atlas, attachment, inside, pixel_coords, pixel_value, process_entry, is_border}
+import bevy_terrain::shaders::preprocess::preprocessing::{AtlasTile, INVALID_ATLAS_INDEX, atlas, attachment, inside, pixel_coords, pixel_value, process_entry, is_border};
 
 struct StitchData {
     tile: AtlasTile,

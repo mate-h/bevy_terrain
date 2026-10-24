@@ -216,6 +216,16 @@ impl GpuAttachment {
 
         let buffer_info = AtlasBufferInfo::new(attachment, tile_atlas.lod_count);
 
+        // Only the mip-generation compute pass writes the atlas as a storage
+        // texture. Requesting `STORAGE_BINDING` unconditionally would restrict
+        // every attachment to a storage-capable format, which excludes the
+        // single-channel 8/16-bit formats.
+        let mut usage =
+            TextureUsages::COPY_DST | TextureUsages::COPY_SRC | TextureUsages::TEXTURE_BINDING;
+        if attachment.mip_level_count > 1 {
+            usage |= TextureUsages::STORAGE_BINDING;
+        }
+
         let atlas_texture = device.create_texture(&TextureDescriptor {
             label: Some(&format!("{name}_attachment")),
             size: Extent3d {
@@ -227,10 +237,7 @@ impl GpuAttachment {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: buffer_info.format.processing_format(),
-            usage: TextureUsages::COPY_DST
-                | TextureUsages::COPY_SRC
-                | TextureUsages::TEXTURE_BINDING
-                | TextureUsages::STORAGE_BINDING,
+            usage,
             view_formats: &[buffer_info.format.render_format()],
         });
 
@@ -301,6 +308,13 @@ impl GpuAttachment {
         pipeline_cache: &PipelineCache,
         mip_pipelines: &MipPipelines,
     ) {
+        // Building the layout instantiates a storage-texture binding of this
+        // attachment's format. Skip it when there are no mips to generate, so
+        // non-storage formats stay usable.
+        if self.buffer_info.mip_level_count <= 1 {
+            return;
+        }
+
         let layout = pipeline_cache
             .get_bind_group_layout(&mip_pipelines.mip_layouts[&self.buffer_info.format]);
         for (mip_level, atlas_indices) in self.mips_to_generate.iter().enumerate() {

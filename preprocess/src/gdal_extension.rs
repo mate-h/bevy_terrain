@@ -1,5 +1,5 @@
 use crate::{
-    dataset::PreprocessContext,
+    dataset::{PreprocessContext, PreprocessResampleAlg},
     result::{PreprocessError, PreprocessResult},
 };
 use gag::Gag;
@@ -16,7 +16,6 @@ use glam::U64Vec2;
 use itertools::Itertools;
 use std::{
     ffi::{CStr, CString, c_char, c_double, c_int, c_void},
-    os::unix::ffi::OsStrExt,
     path::Path,
     ptr, slice,
     sync::atomic::{AtomicU64, Ordering},
@@ -89,8 +88,10 @@ pub fn warp(
     let options = unsafe { &mut *GDALCreateWarpOptions() };
     options.hSrcDS = src.c_dataset();
     options.hDstDS = dst.c_dataset();
-    // options.eResampleAlg = GDALResampleAlg::GRA_NearestNeighbour;
-    options.eResampleAlg = GDALResampleAlg::GRA_Bilinear;
+    options.eResampleAlg = match context.resample_alg {
+        PreprocessResampleAlg::Bilinear => GDALResampleAlg::GRA_Bilinear,
+        PreprocessResampleAlg::Nearest => GDALResampleAlg::GRA_NearestNeighbour,
+    };
     options.dfWarpMemoryLimit = 1024f64.powi(2) * 8.0; // Todo: figure out, why this affects reprojection at the poles
 
     // for some reason this is not automatically recognized, so we have to set it manually
@@ -306,7 +307,9 @@ pub struct SharedReadOnlyDataset {
 impl SharedReadOnlyDataset {
     pub fn new(path: &Path) -> Self {
         Self {
-            path: CString::new(path.as_os_str().as_bytes()).unwrap(),
+            // GDAL treats filenames as UTF-8 when `GDAL_FILENAME_IS_UTF8` is YES, the default.
+            path: CString::new(path.to_str().expect("GDAL paths must be valid Unicode"))
+                .expect("GDAL paths must not contain interior nulls"),
             pool: ThreadLocal::new(),
         }
     }

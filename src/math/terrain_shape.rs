@@ -2,10 +2,17 @@ use crate::math::spheroid::project_point_spheroid;
 use bevy::{math::DVec3, prelude::*};
 use serde::{Deserialize, Serialize};
 
+/// World shape stored on [`TerrainConfig`](crate::terrain::TerrainConfig).
+///
+/// A plane is one face. A sphere or spheroid is a six-face cube-sphere.
+/// [`TerrainShape::WGS84`] is the Earth ellipsoid the GeoTIFF preprocess path writes.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum TerrainShape {
+    /// Flat map. `side_length` is the full width and depth. UV `(0.5, 0.5)` is the center.
     Plane { side_length: f64 },
+    /// Cube-sphere with this radius, in meters.
     Sphere { radius: f64 },
+    /// Ellipsoid. `major_axis` is the equatorial radius and `minor_axis` the polar radius, in meters.
     Spheroid { major_axis: f64, minor_axis: f64 },
 }
 
@@ -49,6 +56,36 @@ impl TerrainShape {
     }
     pub fn face_count(self) -> u32 {
         if self.is_spherical() { 6 } else { 1 }
+    }
+
+    /// Returns atmosphere radii and an initial planet-center transform for a flat map
+    /// centered at the origin, with the planet north pole aligned to world `(0, 0, 0)` at `+Y`.
+    ///
+    /// At runtime, call [`planar_atmosphere_center`](Self::planar_atmosphere_center) each frame with the camera's horizontal
+    /// position so the spherical atmosphere stays tangent to the flat terrain (+Y up).
+    pub fn planar_atmosphere_alignment(
+        min_height: f32,
+        reference_minor_axis: f64,
+        atmosphere_shell: f32,
+    ) -> (f32, f32, Transform) {
+        let inner_radius = (reference_minor_axis - min_height as f64) as f32;
+        let outer_radius = inner_radius + atmosphere_shell;
+        let transform = Transform::from_translation(Self::planar_atmosphere_center(
+            min_height,
+            inner_radius,
+            Vec2::ZERO,
+        ));
+        (inner_radius, outer_radius, transform)
+    }
+
+    /// Planet center for a flat map with +Y up and the inner atmosphere sphere tangent at
+    /// `horizontal` on the terrain reference height `surface_height`.
+    pub fn planar_atmosphere_center(
+        surface_height: f32,
+        inner_radius: f32,
+        horizontal: Vec2,
+    ) -> Vec3 {
+        Vec3::new(horizontal.x, surface_height - inner_radius, horizontal.y)
     }
 
     pub fn position_unit_to_local(self, unit_position: DVec3, height: f64) -> DVec3 {

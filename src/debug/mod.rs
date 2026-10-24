@@ -1,7 +1,12 @@
-//! Contains a debug resource and systems controlling it to visualize different internal
-//! data of the plugin.
+//! [`TerrainDebugPlugin`] adds LOD overlays and, with `big_space`, fly and orbit cameras.
+//!
+//! Keys, when the plugin is added: `W` wireframe, `L` data LOD, `Y` geometry LOD, `Q` tile tree,
+//! `N`/`E` blend distance, `I`/`O` morph distance. `T` toggles the fly camera and `R` the orbit
+//! camera.
+#[cfg(feature = "big_space")]
+use crate::debug::{debug_camera_controller, orbital_camera_controller};
 use crate::{
-    debug::{debug_camera_controller, debug_surface_approximation, orbital_camera_controller},
+    debug::debug_surface_approximation,
     terrain_data::{TileAtlas, TileTree},
     terrain_view::TerrainViewComponents,
 };
@@ -9,28 +14,38 @@ use crate::{
 use bevy::{
     light::GlobalAmbientLight,
     prelude::*,
-    render::{Extract, RenderApp, render_resource::*},
+    render::{render_resource::*, Extract, RenderApp},
     window::{CursorOptions, PrimaryWindow},
 };
 
 mod approximation_debug;
+#[cfg(feature = "big_space")]
 mod camera;
+mod ground_aligned_camera;
+#[cfg(feature = "big_space")]
 mod orbital_camera;
 
-pub(crate) use self::{approximation_debug::*, camera::*, orbital_camera::*};
+pub(crate) use self::approximation_debug::*;
+pub use self::ground_aligned_camera::{GroundAlignedFreeCamera, GroundAlignedFreeCameraPlugin};
+#[cfg(feature = "big_space")]
 pub use self::{camera::DebugCameraController, orbital_camera::OrbitalCameraController};
+#[cfg(feature = "big_space")]
+pub(crate) use self::{camera::*, orbital_camera::*};
 
 #[cfg(all(feature = "metal_capture", target_vendor = "apple"))]
 mod metal_capture;
 #[cfg(all(feature = "metal_capture", target_vendor = "apple"))]
 pub use self::metal_capture::MetalCapturePlugin;
 
+/// Unlit stand-in material. Uses the default terrain fragment shader.
 #[derive(Asset, AsBindGroup, TypePath, Clone, Default)]
 pub struct DebugTerrainMaterial {}
 
 impl Material for DebugTerrainMaterial {}
 
-/// Adds a terrain debug config, a debug camera and debug control systems.
+/// LOD overlays, plus the fly and orbit cameras when `big_space` is enabled.
+///
+/// See the [module docs](self) for keys.
 pub struct TerrainDebugPlugin;
 
 impl Plugin for TerrainDebugPlugin {
@@ -45,14 +60,14 @@ impl Plugin for TerrainDebugPlugin {
                     update_terrain_parameter,
                     update_view_parameter,
                     finish_loading_images,
-                    orbital_camera_controller,
-                    debug_camera_controller,
                 ),
             )
             .add_systems(
                 Last,
                 debug_surface_approximation.after(TileTree::generate_surface_approximation),
             );
+        #[cfg(feature = "big_space")]
+        app.add_systems(Update, (orbital_camera_controller, debug_camera_controller));
         #[cfg(all(feature = "metal_capture", target_vendor = "apple"))]
         app.add_plugins(MetalCapturePlugin);
 
@@ -62,6 +77,7 @@ impl Plugin for TerrainDebugPlugin {
     }
 }
 
+/// Shader-def toggles driven by [`TerrainDebugPlugin`]. Flip fields from a system, or use the keys.
 #[derive(Clone, Resource)]
 pub struct DebugTerrain {
     pub wireframe: bool,
@@ -320,6 +336,10 @@ pub fn debug_window(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>) 
     cursor.visible = true; // false;
 }
 
+/// Forces dimension and format onto images once they finish loading.
+///
+/// [`TerrainDebugPlugin`] polls this. Use it for material textures whose file format Bevy
+/// would otherwise guess wrong.
 #[derive(Resource, Default)]
 pub struct LoadingImages(Vec<(AssetId<Image>, TextureDimension, TextureFormat)>);
 

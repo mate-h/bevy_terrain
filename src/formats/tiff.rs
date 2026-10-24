@@ -8,6 +8,7 @@ use bytemuck::cast_slice;
 use std::io::Cursor;
 use tiff::decoder::{Decoder, DecodingResult};
 
+/// Loads terrain tile TIFFs as [`Image`]s. [`TerrainPlugin`](crate::plugin::TerrainPlugin) registers it.
 #[derive(Default, TypePath)]
 pub struct TiffLoader;
 impl AssetLoader for TiffLoader {

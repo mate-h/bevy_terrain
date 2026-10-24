@@ -1,15 +1,21 @@
 [package]
 name = "bevy_terrain"
-description = "Terrain Rendering for the Bevy Engine."
-version = "0.1.0-dev"
+description = "Streaming tiled heightfield terrain for Bevy, from planar worlds to planetary ellipsoids."
+version = "0.1.0"
 license = "MIT OR Apache-2.0"
 edition = "2024"
+rust-version = "1.97.1"
 categories = ["game-engines", "rendering", "graphics"]
-keywords = ["gamedev", "graphics", "bevy", "terrain"]
-exclude = ["assets/*"]
+keywords = ["gamedev", "graphics", "bevy", "terrain", "planet"]
+exclude = [".cargo", "captures", "source_data", "assets/terrains"]
 readme = "README.md"
-authors = ["Kurt Kühnert <kurt@kuehnert.dev>"]
-repository = "https://github.com/kurtkuehnert/bevy_terrain"
+authors = [
+    "Kurt Kühnert <kurt@kuehnert.dev>",
+    "Máté Homolya <mate.homolya@gmail.com>",
+]
+repository = "https://github.com/mate-h/bevy_terrain"
+homepage = "https://github.com/mate-h/bevy_terrain"
+documentation = "https://docs.rs/bevy_terrain"
 
 [workspace]
 members = ["preprocess"]
@@ -18,15 +24,20 @@ members = ["preprocess"]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("webgpu"))'] }
 
 [features]
+default = ["big_space"]
+big_space = ["dep:big_space"]
 rand = ["dep:rand"]
-metal_capture = ["dep:wgpu-core", "dep:objc2-metal", "dep:objc2-foundation"]
+metal_capture = []
+bluenoise_texture = ["bevy/bluenoise_texture"]
+atmosphere_example = ["bevy/free_camera", "bevy/https", "bevy/tonemapping_luts"]
 
 [dependencies]
-bevy = "0.19"
-bevy_common_assets = { version = "0.17", features = ["ron"] }
-big_space = { git = "https://github.com/m-edlund/big_space", rev = "79e04cc01a84f3b8d199a0f97aaeb8245f203b16", features = ["i32"] }
+bevy = { version = "0.20", default-features = false, features = ["3d", "free_camera"] }
+# crates.io rejects git dependencies. This follows mate-h/big_space until a
+# Bevy 0.20 release of big_space is published (0.14.0-rc.0 still requires 0.20.0-rc.2).
+big_space = { git = "https://github.com/mate-h/big_space", branch = "bevy-0.20.0", features = ["i32"], optional = true }
 tiff = "0.10"
-bytemuck = "1.14"
+bytemuck = { version = "1.14", features = ["derive"] }
 ndarray = "0.16.1"
 itertools = "0.14.0"
 indexmap = "2.12"
@@ -39,13 +50,31 @@ strum = "0.27.1"
 strum_macros = "0.27.1"
 
 rand = { version = "0.9.0", optional = true }
-wgpu-core = { version = "29.0.3", optional = true, default-features = false, features = ["metal", "std"] } # keep in sync with bevy's wgpu
-objc2-metal = { version = "0.3.2", optional = true, default-features = false, features = ["MTLCaptureManager", "MTLDevice", "std"] }
-objc2-foundation = { version = "0.3.2", optional = true, default-features = false, features = ["NSString", "NSURL", "std"] }
+# wgpu-core optional dep removed for Bevy 0.20 workspace compatibility; re-add with patched git when metal_capture is needed
+
+[[example]]
+name = "planar_world"
+path = "examples/planar_world.rs"
+required-features = ["atmosphere_example"]
 
 [[example]]
 name = "spherical"
 path = "examples/spherical.rs"
+
+[[example]]
+name = "mount_baker"
+path = "examples/mount_baker.rs"
+required-features = ["atmosphere_example"]
+
+[[example]]
+name = "atmosphere"
+path = "examples/atmosphere.rs"
+required-features = ["atmosphere_example"]
+
+[[example]]
+name = "bc_atmosphere"
+path = "examples/bc_atmosphere.rs"
+required-features = ["atmosphere_example"]
 
 [[example]]
 name = "precision_demo"
