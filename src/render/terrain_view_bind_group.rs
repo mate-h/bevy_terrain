@@ -18,6 +18,7 @@ use bevy::{
         render_asset::RenderAssets,
         render_phase::{PhaseItem, RenderCommand, RenderCommandResult, TrackedRenderPass},
         render_resource::{binding_types::*, *},
+        material_bind_groups::FallbackBuffer,
         renderer::RenderDevice,
         storage::{GpuShaderBuffer, ShaderBuffer},
         sync_world::MainEntity,
@@ -330,6 +331,8 @@ impl GpuTerrainView {
         pipeline_cache: Res<PipelineCache>,
         prepass_pipeline: Res<TerrainTilingPrepassPipelines>,
         mut gpu_terrain_views: ResMut<TerrainViewComponents<GpuTerrainView>>,
+        fallback_buffer: Res<FallbackBuffer>,
+        shader_buffers: Res<RenderAssets<GpuShaderBuffer>>,
         mut param: StaticSystemParam<<IndirectBindGroup as AsBindGroup>::Param>,
     ) {
         for gpu_terrain_view in &mut gpu_terrain_views.values_mut() {
@@ -342,6 +345,8 @@ impl GpuTerrainView {
                         &prepass_pipeline.indirect_layout,
                         &device,
                         &pipeline_cache,
+                        &fallback_buffer,
+                        &shader_buffers,
                         &mut param,
                     )
                     .ok()

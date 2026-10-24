@@ -54,7 +54,7 @@ pub fn picking_system(
             world_from_clip: global_transform.to_matrix() * camera.clip_from_view().inverse(),
             cell: IVec3::new(cell.x, cell.y, cell.z),
         };
-        buffer.set_data(data);
+        upload_shader_buffer(&mut buffer, &data);
     }
 }
 
@@ -81,8 +81,18 @@ pub fn picking_system(
             world_from_clip: global_transform.to_matrix() * camera.clip_from_view().inverse(),
             cell: IVec3::ZERO,
         };
-        buffer.set_data(data);
+        upload_shader_buffer(&mut buffer, &data);
     }
+}
+
+fn upload_shader_buffer<T>(buffer: &mut ShaderBuffer, value: &T)
+where
+    T: ShaderType + bevy::render::render_resource::encase::internal::WriteInto,
+{
+    let mut encoded = bevy::render::render_resource::encase::StorageBuffer::new(Vec::<u8>::new());
+    encoded.write(value).unwrap();
+    buffer.clear();
+    buffer.extend_from_slice(encoded.into_inner().as_slice());
 }
 
 pub fn picking_readback(on: On<ReadbackComplete>, mut picking_data: Query<&mut PickingData>) {
@@ -113,10 +123,10 @@ pub fn picking_readback(on: On<ReadbackComplete>, mut picking_data: Query<&mut P
 pub fn picking_hook(mut world: DeferredWorld, context: HookContext) {
     let mut buffers = world.resource_mut::<Assets<ShaderBuffer>>();
     let mut buffer = ShaderBuffer::with_size(
-        GpuPickingData::min_size().get() as usize,
+        GpuPickingData::min_size().get(),
         RenderAssetUsages::default(),
     );
-    buffer.buffer_description.usage |= BufferUsages::COPY_SRC;
+    buffer.buffer_usage |= BufferUsages::COPY_SRC;
     let buffer = buffers.add(buffer);
 
     world
@@ -142,11 +152,11 @@ pub struct PickingData {
     buffer: Handle<ShaderBuffer>,
 }
 
-impl SyncComponent for PickingData {
+impl SyncComponent<RenderApp> for PickingData {
     type Target = GpuPickingBuffer;
 }
 
-impl ExtractComponent for PickingData {
+impl ExtractComponent<RenderApp> for PickingData {
     type QueryData = &'static PickingData;
     type QueryFilter = ();
     type Out = GpuPickingBuffer;

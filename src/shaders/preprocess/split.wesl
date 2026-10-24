@@ -1,5 +1,5 @@
-#import bevy_terrain::preprocessing::{AtlasTile, atlas, attachment, pixel_coords, pixel_value, process_entry, is_border, inverse_mix}
-#import bevy_terrain::functions::{inside_square};
+import bevy_terrain::shaders::preprocess::preprocessing::{AtlasTile, atlas, attachment, pixel_coords, pixel_value, process_entry, is_border, inverse_mix};
+import bevy_terrain::shaders::functions::{inside_square};
 
 struct SplitData {
     tile: AtlasTile,

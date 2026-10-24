@@ -7,9 +7,8 @@
 //! `cargo run --release --example planar_world --features atmosphere_example`
 
 use bevy::{
-    camera::{Exposure, Hdr},
+    camera::Exposure,
     camera_controller::free_camera::{FreeCamera, FreeCameraPlugin},
-    core_pipeline::tonemapping::{GranTurismo7Params, Tonemapping},
     light::{
         Atmosphere, AtmosphereEnvironmentMapLight, SunDisk, VolumetricLight,
         atmosphere::ScatteringMedium, light_consts::lux,
@@ -118,9 +117,6 @@ fn setup_scene(
         Transform::from_xyz(0.0, camera_distance * 0.6, camera_distance)
             .looking_at(Vec3::ZERO, Vec3::Y),
         Camera3d::default(),
-        Hdr,
-        Tonemapping::GranTurismo7,
-        GranTurismo7Params::default(),
         Exposure { ev100: 13.0 },
         Bloom::NATURAL,
         AtmosphereSettings {

@@ -8,9 +8,8 @@
 
 use bevy::{
     asset::io::AssetSourceBuilder,
-    camera::{Exposure, Hdr},
-    camera_controller::free_camera::{FreeCamera, FreeCameraPlugin, UpAxis},
-    core_pipeline::tonemapping::{GranTurismo7Params, Tonemapping},
+    camera::Exposure,
+    camera_controller::free_camera::{FreeCamera, FreeCameraPlugin},
     input::keyboard::KeyCode,
     light::{
         Atmosphere, AtmosphereEnvironmentMapLight, SunDisk, VolumetricLight,
@@ -23,14 +22,10 @@ use bevy::{
     reflect::TypePath,
     render::render_resource::{AsBindGroup, ShaderType},
     shader::ShaderRef,
-    window::{DisplayTarget, PrimaryWindow},
 };
 use bevy_terrain::{math::Coordinate, prelude::*};
 use big_space::prelude::Grid;
 use std::f32::consts::PI;
-
-#[path = "helpers/hdr.rs"]
-mod hdr;
 
 const EARTH_MINOR_RADIUS: f32 = 6356752.314245;
 const EARTH_ATMOSPHERE_SHELL: f32 = 100_000.0;
@@ -88,19 +83,9 @@ fn bc_surface_point() -> DVec3 {
     bc_coordinate().local_position(TerrainShape::WGS84, BC_MEAN_HEIGHT)
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 struct GameState {
     paused: bool,
-    hdr_output_enabled: bool,
-}
-
-impl Default for GameState {
-    fn default() -> Self {
-        Self {
-            paused: false,
-            hdr_output_enabled: true,
-        }
-    }
 }
 
 #[derive(Resource)]
@@ -151,20 +136,12 @@ fn main() {
             ..default()
         })
         .add_plugins((
-            DefaultPlugins
-                .build()
-                .set(bevy::render::RenderPlugin {
-                    working_color_space:
-                        bevy::render::working_color_space::WorkingColorSpace::Rec2020,
-                    ..default()
-                })
-                .disable::<TransformPlugin>(),
+            DefaultPlugins.build().disable::<TransformPlugin>(),
             FreeCameraPlugin,
             TerrainPlugin,
             TerrainMaterialPlugin::<BcMaterial>::default(),
         ))
-        .add_plugins(hdr::HdrPlugin::default())
-        .add_systems(Startup, (setup_hdr_display, setup_scene, print_controls))
+        .add_systems(Startup, (setup_scene, print_controls))
         .add_systems(
             Update,
             (dynamic_scene, atmosphere_controls, terrain_overlay_controls),
@@ -182,24 +159,8 @@ fn print_controls() {
     println!("    T          - Toggle terrain shadows on/off");
     println!("    I          - Toggle color albedo overlay on/off");
     println!("    N          - Toggle normal map overlay on/off");
-    println!("    H          - Toggle HDR display output on/off");
     println!("    Up/Down    - Increase/Decrease exposure");
     println!("    WASD       - Move camera (FreeCamera)");
-}
-
-fn setup_hdr_display(
-    mut display_target: Single<&mut DisplayTarget, With<PrimaryWindow>>,
-    mut hdr_preference: ResMut<hdr::HdrPreference>,
-    mut game_state: ResMut<GameState>,
-) {
-    if std::env::var("CI_TESTING_CONFIG").is_ok() {
-        hdr_preference.manual_override = true;
-        **display_target = DisplayTarget::SDR_SRGB;
-        game_state.hdr_output_enabled = false;
-        return;
-    }
-    display_target.paper_white_nits = 200.0;
-    display_target.peak_luminance_nits = 1000.0;
 }
 
 fn atmosphere_controls(
@@ -211,8 +172,6 @@ fn atmosphere_controls(
     mut game_state: ResMut<GameState>,
     mut terrain_shadows: ResMut<TerrainShadowSettings>,
     mut camera_exposure: Query<&mut Exposure, With<Camera3d>>,
-    mut display_target: Single<&mut DisplayTarget, With<PrimaryWindow>>,
-    mut hdr_preference: ResMut<hdr::HdrPreference>,
     time: Res<Time>,
 ) {
     if keyboard_input.just_pressed(KeyCode::Digit3) {
@@ -264,20 +223,6 @@ fn atmosphere_controls(
             "Terrain shadows: {}",
             if terrain_shadows.enabled { "on" } else { "off" }
         );
-    }
-
-    if keyboard_input.just_pressed(KeyCode::KeyH) {
-        game_state.hdr_output_enabled = !game_state.hdr_output_enabled;
-        if game_state.hdr_output_enabled {
-            hdr_preference.manual_override = false;
-            display_target.paper_white_nits = 200.0;
-            display_target.peak_luminance_nits = 1000.0;
-            println!("HDR display output: on (auto-select transfer)");
-        } else {
-            hdr_preference.manual_override = true;
-            **display_target = DisplayTarget::SDR_SRGB;
-            println!("HDR display output: off (SDR sRGB)");
-        }
     }
 
     if keyboard_input.pressed(KeyCode::ArrowUp) {
@@ -355,9 +300,6 @@ fn setup_scene(
                 cell,
                 Transform::from_translation(local_translation).looking_to(look_dir, up.as_vec3()),
                 Camera3d::default(),
-                Hdr,
-                Tonemapping::GranTurismo7,
-                GranTurismo7Params::default(),
                 Exposure { ev100: 13.0 },
                 Bloom::NATURAL,
                 AtmosphereSettings {
@@ -367,7 +309,6 @@ fn setup_scene(
                 FreeCamera {
                     walk_speed: 2500.0,
                     run_speed: 10000.0,
-                    up_axis: UpAxis::Fixed(up),
                     ..default()
                 },
                 FloatingOrigin,

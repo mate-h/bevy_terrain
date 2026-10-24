@@ -1,4 +1,3 @@
-#define_import_path bevy_terrain::preprocessing
 
 const FORMAT_R8: u32 = 2u;
 const FORMAT_RGBA8: u32 = 0u;

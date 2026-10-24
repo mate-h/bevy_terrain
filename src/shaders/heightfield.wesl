@@ -1,9 +1,8 @@
-#define_import_path bevy_terrain::heightfield
 
-#import bevy_terrain::types::{Coordinate, Blend, INVALID_ATLAS_INDEX}
-#import bevy_terrain::bindings::terrain_data
-#import bevy_terrain::attachments::{sample_height, sample_height_mask}
-#import bevy_terrain::functions::lookup_tile
+import bevy_terrain::shaders::types::{Coordinate, Blend, INVALID_ATLAS_INDEX};
+import bevy_terrain::shaders::bindings::terrain_data;
+import bevy_terrain::shaders::attachments::{sample_height, sample_height_mask};
+import bevy_terrain::shaders::functions::lookup_tile;
 
 const HEIGHTFIELD_SIGMA: f32 = 0.87 * 0.87;
 
@@ -11,56 +10,54 @@ const HEIGHTFIELD_SIGMA: f32 = 0.87 * 0.87;
 // spherical terrains, or the unit plane for planar ones).
 fn world_to_unit_position(world_position: vec3<f32>, unit_from_world: mat4x4<f32>) -> vec3<f32> {
     let unit = (unit_from_world * vec4<f32>(world_position, 1.0)).xyz;
-#ifdef SPHERICAL
+    @if(SPHERICAL)
     return normalize(unit);
-#else
+    @if(!(SPHERICAL))
     return unit;
-#endif
 }
 
 // Inverse of the cube-sphere projection in `Coordinate::from_unit_position`.
 fn unit_to_coordinate(unit: vec3<f32>) -> Coordinate {
-#ifdef SPHERICAL
-    let abs_u = abs(unit);
-    var face: u32;
-    var xy: vec2<f32>;
+    @if(SPHERICAL) {
+        let abs_u = abs(unit);
+        var face: u32;
+        var xy: vec2<f32>;
 
-    if (abs_u.x >= abs_u.y && abs_u.x >= abs_u.z) {
-        if (unit.x < 0.0) {
-            face = 0u;
-            xy = vec2(unit.z, -unit.y) / abs_u.x;
+        if (abs_u.x >= abs_u.y && abs_u.x >= abs_u.z) {
+            if (unit.x < 0.0) {
+                face = 0u;
+                xy = vec2(unit.z, -unit.y) / abs_u.x;
+            } else {
+                face = 3u;
+                xy = vec2(-unit.y, unit.z) / abs_u.x;
+            }
+        } else if (abs_u.y >= abs_u.x && abs_u.y >= abs_u.z) {
+            if (unit.y < 0.0) {
+                face = 5u;
+                xy = vec2(unit.z, unit.x) / abs_u.y;
+            } else {
+                face = 2u;
+                xy = vec2(unit.x, unit.z) / abs_u.y;
+            }
+        } else if (unit.z < 0.0) {
+            face = 4u;
+            xy = vec2(-unit.y, unit.x) / abs_u.z;
         } else {
-            face = 3u;
-            xy = vec2(-unit.y, unit.z) / abs_u.x;
+            face = 1u;
+            xy = vec2(unit.x, -unit.y) / abs_u.z;
         }
-    } else if (abs_u.y >= abs_u.x && abs_u.y >= abs_u.z) {
-        if (unit.y < 0.0) {
-            face = 5u;
-            xy = vec2(unit.z, unit.x) / abs_u.y;
-        } else {
-            face = 2u;
-            xy = vec2(unit.x, unit.z) / abs_u.y;
-        }
-    } else if (unit.z < 0.0) {
-        face = 4u;
-        xy = vec2(-unit.y, unit.x) / abs_u.z;
-    } else {
-        face = 1u;
-        xy = vec2(unit.x, -unit.y) / abs_u.z;
+
+        let uv = clamp(
+            0.5 * xy * sqrt((1.0 + HEIGHTFIELD_SIGMA) / (1.0 + HEIGHTFIELD_SIGMA * xy * xy)) + 0.5,
+            vec2(0.0),
+            vec2(1.0),
+        );
+
+        return Coordinate(face, 0u, vec2<u32>(0u), uv);
+    } @else {
+        let uv = clamp(unit.xz + 0.5, vec2(0.0), vec2(1.0));
+        return Coordinate(0u, 0u, vec2<u32>(0u), uv);
     }
-
-    let uv = clamp(
-        0.5 * xy * sqrt((1.0 + HEIGHTFIELD_SIGMA) / (1.0 + HEIGHTFIELD_SIGMA * xy * xy)) + 0.5,
-        vec2(0.0),
-        vec2(1.0),
-    );
-
-    return Coordinate(face, 0u, vec2<u32>(0u), uv);
-#else
-    let uv = clamp(unit.xz + 0.5, vec2(0.0), vec2(1.0));
-
-    return Coordinate(0u, 0u, vec2<u32>(0u), uv);
-#endif
 }
 
 // Samples the terrain height (meters above the ellipsoid) at an arbitrary world position.

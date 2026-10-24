@@ -11,7 +11,8 @@ use crate::{
 use bevy::{
     asset::RenderAssetUsages,
     ecs::entity::EntityHashSet,
-    math::{DVec2, DVec3, primitives::ViewFrustum},
+    math::{DVec2, DVec3},
+    shape::ViewFrustum,
     prelude::*,
     render::{
         gpu_readback::{Readback, ReadbackComplete},
@@ -21,9 +22,20 @@ use bevy::{
 };
 #[cfg(feature = "big_space")]
 use big_space::prelude::{CellCoord, Grids};
+use bevy::render::render_resource::encase::{internal::WriteInto, StorageBuffer};
 use itertools::{Itertools, iproduct};
 use ndarray::Array4;
 use std::{cmp::Ordering, iter};
+
+fn upload_shader_buffer<T>(buffer: &mut ShaderBuffer, value: &T)
+where
+    T: ShaderType + WriteInto,
+{
+    let mut encoded = StorageBuffer::new(Vec::<u8>::new());
+    encoded.write(value).unwrap();
+    buffer.clear();
+    buffer.extend_from_slice(encoded.into_inner().as_slice());
+}
 
 /// View movement (in meters) beyond which [`TileTree::update`] must run again.
 /// `update` is the only place `view_coordinates` refresh, and they anchor the
@@ -175,16 +187,16 @@ impl TileTree {
         ));
 
         let terrain_view_buffer = buffers.add(ShaderBuffer::with_size(
-            TerrainViewUniform::min_size().get() as usize,
+            TerrainViewUniform::min_size().get(),
             RenderAssetUsages::all(),
         ));
         let tile_tree_buffer = buffers.add(ShaderBuffer::with_size(
-            data.len() * size_of::<TileTreeEntry>(),
+            (data.len() * size_of::<TileTreeEntry>()) as u64,
             RenderAssetUsages::all(),
         ));
 
-        let mut approximate_height_buffer = ShaderBuffer::from(0.0);
-        approximate_height_buffer.buffer_description.usage |= BufferUsages::COPY_SRC;
+        let mut approximate_height_buffer = ShaderBuffer::from(vec![0.0f32]);
+        approximate_height_buffer.buffer_usage |= BufferUsages::COPY_SRC;
         let approximate_height_buffer = buffers.add(approximate_height_buffer);
 
         commands
@@ -525,13 +537,19 @@ impl TileTree {
             {
                 let mut terrain_view_buffer =
                     buffers.get_mut(&tile_tree.terrain_view_buffer).unwrap();
-                terrain_view_buffer.set_data(TerrainViewUniform::from(tile_tree));
+                upload_shader_buffer(
+                    &mut terrain_view_buffer,
+                    &TerrainViewUniform::from(tile_tree),
+                );
             }
             {
                 let mut tile_tree_buffer = buffers.get_mut(&tile_tree.tile_tree_buffer).unwrap();
-                tile_tree_buffer.set_data(TileTreeUniform {
-                    entries: tile_tree.data.clone().into_iter().collect_vec(),
-                });
+                upload_shader_buffer(
+                    &mut tile_tree_buffer,
+                    &TileTreeUniform {
+                        entries: tile_tree.data.clone().into_iter().collect_vec(),
+                    },
+                );
             }
         }
     }
