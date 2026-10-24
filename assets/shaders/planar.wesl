@@ -1,8 +1,9 @@
-#import bevy_terrain::types::{AtlasTile}
-#import bevy_terrain::bindings::{terrain_data, terrain_view, height_attachment, terrain_sampler}
-#import bevy_terrain::attachments::{sample_height, sample_height_mask, sample_surface_gradient, relief_shading}
-#import bevy_terrain::fragment::{FragmentInput, FragmentOutput, fragment_info, fragment_output, fragment_debug}
-#import bevy_terrain::functions::{lookup_tile, inverse_mix}
+import bevy_terrain::shaders::types::AtlasTile;
+import bevy_terrain::shaders::bindings::terrain_data;
+import bevy_terrain::shaders::attachments::{sample_height, sample_height_mask, sample_surface_gradient, relief_shading};
+import bevy_terrain::shaders::render::fragment::{FragmentInput, FragmentOutput, fragment_info, fragment_output};
+@if(!DEFERRED_PREPASS) import bevy_terrain::shaders::render::fragment::fragment_debug;
+import bevy_terrain::shaders::functions::{lookup_tile, inverse_mix};
 
 struct GradientInfo {
     mode: u32,
@@ -66,13 +67,13 @@ fn fragment(input: FragmentInput) -> FragmentOutput {
     if (mask) { discard; }
 
     var output: FragmentOutput;
-#ifdef LIGHTING
+    @if(LIGHTING && !DEFERRED_PREPASS)
     output.color = color * relief_shading(info.world_coordinate, surface_gradient);
-#else
+    @if(!LIGHTING)
     output.color = color;
-#endif
 
     fragment_output(&info, &output, color, surface_gradient);
+    @if(!DEFERRED_PREPASS)
     fragment_debug(&info, &output, tile, surface_gradient);
     return output;
 }

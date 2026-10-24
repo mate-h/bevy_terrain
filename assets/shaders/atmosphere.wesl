@@ -1,8 +1,9 @@
-#import bevy_terrain::types::AtlasTile
-#import bevy_terrain::bindings::{terrain_data, landcover_attachment, albedo_attachment, terrain_sampler}
-#import bevy_terrain::attachments::{compute_sample_uv, sample_height_mask, sample_surface_gradient}
-#import bevy_terrain::fragment::{FragmentInput, FragmentOutput, fragment_info, fragment_output, fragment_debug}
-#import bevy_terrain::functions::lookup_tile
+import bevy_terrain::shaders::types::AtlasTile;
+import bevy_terrain::shaders::bindings::{terrain_data, landcover_attachment, albedo_attachment, terrain_sampler};
+import bevy_terrain::shaders::attachments::{compute_sample_uv, sample_height_mask, sample_surface_gradient};
+import bevy_terrain::shaders::render::fragment::{FragmentInput, FragmentOutput, fragment_info, fragment_output};
+@if(!DEFERRED_PREPASS) import bevy_terrain::shaders::render::fragment::fragment_debug;
+import bevy_terrain::shaders::functions::lookup_tile;
 
 struct CaliforniaMaterialSettings {
     show_landcover: u32,
@@ -15,21 +16,19 @@ var<uniform> material_settings: CaliforniaMaterialSettings;
 fn sample_landcover(tile: AtlasTile) -> vec4<f32> {
     let uv = compute_sample_uv(tile, terrain_data.attachments.landcover);
 
-#ifdef SAMPLE_GRAD
+    @if(SAMPLE_GRAD)
     return textureSampleGrad(landcover_attachment, terrain_sampler, uv.uv, tile.index, uv.dx, uv.dy);
-#else
+    @if(!SAMPLE_GRAD)
     return textureSampleLevel(landcover_attachment, terrain_sampler, uv.uv, tile.index, tile.blend_ratio);
-#endif
 }
 
 fn sample_albedo(tile: AtlasTile) -> vec4<f32> {
     let uv = compute_sample_uv(tile, terrain_data.attachments.albedo);
 
-#ifdef SAMPLE_GRAD
+    @if(SAMPLE_GRAD)
     return textureSampleGrad(albedo_attachment, terrain_sampler, uv.uv, tile.index, uv.dx, uv.dy);
-#else
+    @if(!SAMPLE_GRAD)
     return textureSampleLevel(albedo_attachment, terrain_sampler, uv.uv, tile.index, tile.blend_ratio);
-#endif
 }
 
 @fragment
@@ -51,10 +50,14 @@ fn fragment(input: FragmentInput) -> FragmentOutput {
         color = vec4<f32>(0.5);
     }
 
-    if mask { discard; }
+    if (mask) { discard; }
 
     var output: FragmentOutput;
     fragment_output(&info, &output, color, surface_gradient);
+    @if(DEFERRED_PREPASS)
+    return output;
+    @if(!DEFERRED_PREPASS)
     fragment_debug(&info, &output, tile, surface_gradient);
+    @if(!DEFERRED_PREPASS)
     return FragmentOutput(vec4<f32>(output.color.xyz, 1.0));
 }
