@@ -31,7 +31,7 @@ Preprocess a GeoTIFF first (see [`preprocess/README.md`](preprocess/README.md)).
 # California + atmosphere (needs assets/terrains/california)
 cargo run --example atmosphere --features atmosphere_example
 
-# Mount Baker + terrain shadows
+# Mount Baker + deferred shadows (R despawns / respawns the terrain)
 cargo run --example mount_baker --features atmosphere_example
 
 # Flat world on a planetary atmosphere shell
@@ -43,7 +43,7 @@ cargo run --example spherical
 
 `bc_atmosphere` is the same path as `atmosphere` for the BC dataset. `precision_demo` needs `--features rand`.
 
-Atmosphere examples use Bevy's free camera (`WASD`, mouse). Mount Baker also toggles terrain shadows with `T` and sun motion with Enter.
+Atmosphere examples use Bevy's free camera (`WASD`, mouse). Mount Baker uses deferred rendering; `T` toggles terrain shadows, Enter moves the sun, and `R` despawns / respawns the terrain.
 
 `examples/spherical.rs` enables `TerrainDebugPlugin`: `T` fly camera, `R` orbit camera, `W` wireframe, `L`/`Y` LOD views, `N`/`E` blend distance, `I`/`O` morph distance.
 
