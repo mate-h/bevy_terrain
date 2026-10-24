@@ -1,14 +1,16 @@
 // Generates the RDR2-style terrain shadow map: for every texel of a small top-down
 // map centered on the view, the terrain height map is raymarched towards the sun and
-// the highest occluding elevation (R) plus the ray length to that occluder (G) are
-// stored. At shading time fragments compare their elevation against R and use G to
-// widen the penumbra for cheap soft shadows.
+// the highest occluding elevation (R) plus the ray length to that occluder, as a
+// fraction of `max_distance` (G), are stored. At shading time fragments compare
+// their elevation against R and use G to widen the penumbra for cheap soft shadows.
 
 import bevy_terrain::shaders::bindings::{terrain_shadow, shadow_map_out};
 import bevy_terrain::shaders::heightfield::sample_height_at_world;
 
 // Elevation sentinel meaning "no occluder" (well below any terrain, fits rg16float).
 const NO_OCCLUDER: f32 = -60000.0;
+// Elevation meaning "everything is occluded" (well above any terrain, fits rg16float).
+const FULLY_OCCLUDED: f32 = 60000.0;
 
 @compute @workgroup_size(8, 8, 1)
 fn compute_shadow_map(@builtin(global_invocation_id) invocation: vec3<u32>) {
@@ -65,10 +67,13 @@ fn compute_shadow_map(@builtin(global_invocation_id) invocation: vec3<u32>) {
         }
     } else if (sun_up < 0.0) {
         // Sun pointing straight down: everything is occluded.
-        intersection_height = 60000.0;
+        intersection_height = FULLY_OCCLUDED;
         ray_length          = terrain_shadow.texel_size;
     }
 
+    // A light below the horizon raises the occlusion height without bound. Past
+    // rg16float's range (+-65504) the store becomes Inf, which decodes to NaN.
     textureStore(shadow_map_out, vec2<i32>(invocation.xy),
-                 vec4<f32>(intersection_height, ray_length, 0.0, 0.0));
+                 vec4<f32>(min(intersection_height, FULLY_OCCLUDED),
+                           ray_length / terrain_shadow.max_distance, 0.0, 0.0));
 }

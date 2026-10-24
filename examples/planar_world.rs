@@ -48,7 +48,7 @@ struct PlanarMaterial {
 
 impl Material for PlanarMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/planar.wgsl".into()
+        "shaders/planar.wesl".into()
     }
 }
 

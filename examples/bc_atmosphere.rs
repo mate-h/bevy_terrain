@@ -117,7 +117,7 @@ struct BcMaterial {
 
 impl Material for BcMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/bc_atmosphere.wgsl".into()
+        "shaders/bc_atmosphere.wesl".into()
     }
 }
 

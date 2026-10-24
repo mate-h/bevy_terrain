@@ -1,6 +1,6 @@
 use crate::{
     debug::DebugTerrain,
-    math::{TileCoordinate, ViewCoordinate},
+    math::{SurfaceApproximation, TileCoordinate, ViewCoordinate},
     render::{TerrainTilingPrepassPipelines, terrain_shadow::GpuTerrainShadow},
     terrain_data::TileTree,
     terrain_shadow::TerrainShadowUniform,
@@ -113,7 +113,36 @@ pub(crate) struct PrepassState {
     final_index: i32,
 }
 
-#[derive(ShaderType)]
+/// GPU layout of the WGSL `SurfaceApproximation`. `Vec3A` gives each
+/// `vec3<f32>` its 16-byte storage stride.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct GpuSurfaceApproximation {
+    p: Vec3A,
+    p_du: Vec3A,
+    p_dv: Vec3A,
+    p_duu: Vec3A,
+    p_duv: Vec3A,
+    p_dvv: Vec3A,
+}
+
+impl From<&SurfaceApproximation> for GpuSurfaceApproximation {
+    fn from(approximation: &SurfaceApproximation) -> Self {
+        GpuSurfaceApproximation {
+            p: approximation.p.into(),
+            p_du: approximation.p_du.into(),
+            p_dv: approximation.p_dv.into(),
+            p_duu: approximation.p_duu.into(),
+            p_duv: approximation.p_duv.into(),
+            p_dvv: approximation.p_dvv.into(),
+        }
+    }
+}
+
+/// GPU layout of the WGSL `TerrainView` struct in `types.wesl`; keep the
+/// fields in sync.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct TerrainViewUniform {
     tree_size: u32,
     geometry_tile_count: u32,
@@ -130,10 +159,16 @@ pub(crate) struct TerrainViewUniform {
     face: u32,
     lod: u32,
     coordinates: [ViewCoordinate; 6],
-    world_position: Vec3,
+    _pad0: [f32; 2],
+    world_position: Vec3A,
     half_spaces: [Vec4; 6],
-    surface_approximation: [crate::math::SurfaceApproximation; 6],
+    surface_approximation: [GpuSurfaceApproximation; 6],
 }
+
+// Sized for the HIGH_PRECISION layout. Without that shader def the WGSL struct
+// ends at `half_spaces` and the shader ignores the rest of the buffer.
+const _: () = assert!(size_of::<TerrainViewUniform>() == 848);
+const _: () = assert!(core::mem::offset_of!(TerrainViewUniform, world_position) == 160);
 
 impl From<&TileTree> for TerrainViewUniform {
     fn from(tile_tree: &TileTree) -> Self {
@@ -155,10 +190,13 @@ impl From<&TileTree> for TerrainViewUniform {
             coordinates: tile_tree
                 .view_coordinates
                 .map(|view_coordinate| ViewCoordinate::new(view_coordinate, tile_tree.view_lod)),
-            world_position: tile_tree.view_world_position,
+            _pad0: [0.0; 2],
+            world_position: tile_tree.view_world_position.into(),
             half_spaces: tile_tree.half_spaces,
-
-            surface_approximation: tile_tree.surface_approximation.clone(),
+            surface_approximation: tile_tree
+                .surface_approximation
+                .each_ref()
+                .map(GpuSurfaceApproximation::from),
         }
     }
 }

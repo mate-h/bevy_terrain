@@ -27,7 +27,7 @@ pub struct CustomMaterial {
 
 impl Material for CustomMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/spherical.wgsl".into()
+        "shaders/spherical.wesl".into()
     }
 }
 

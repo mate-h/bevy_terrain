@@ -16,26 +16,15 @@ use bevy::{
     prelude::*,
     render::{
         gpu_readback::{Readback, ReadbackComplete},
-        render_resource::{BufferUsages, ShaderType},
+        render_resource::BufferUsages,
         storage::ShaderBuffer,
     },
 };
 #[cfg(feature = "big_space")]
 use big_space::prelude::{CellCoord, Grids};
-use bevy::render::render_resource::encase::{internal::WriteInto, StorageBuffer};
 use itertools::iproduct;
 use ndarray::Array4;
 use std::{cmp::Ordering, iter};
-
-fn upload_shader_buffer<T>(buffer: &mut ShaderBuffer, value: &T)
-where
-    T: ShaderType + WriteInto,
-{
-    let mut encoded = StorageBuffer::new(Vec::<u8>::new());
-    encoded.write(value).unwrap();
-    buffer.clear();
-    buffer.extend_from_slice(encoded.into_inner().as_slice());
-}
 
 /// View movement (in meters) beyond which [`TileTree::update`] must run again.
 /// `update` is the only place `view_coordinates` refresh, and they anchor the
@@ -189,7 +178,7 @@ impl TileTree {
         ));
 
         let terrain_view_buffer = buffers.add(ShaderBuffer::with_size(
-            TerrainViewUniform::min_size().get(),
+            size_of::<TerrainViewUniform>() as u64,
             RenderAssetUsages::all(),
         ));
         let tile_tree_buffer = buffers.add(ShaderBuffer::with_size(
@@ -539,10 +528,8 @@ impl TileTree {
             {
                 let mut terrain_view_buffer =
                     buffers.get_mut(&tile_tree.terrain_view_buffer).unwrap();
-                upload_shader_buffer(
-                    &mut terrain_view_buffer,
-                    &TerrainViewUniform::from(tile_tree),
-                );
+                terrain_view_buffer.clear();
+                terrain_view_buffer.extend_from_slice(&[TerrainViewUniform::from(tile_tree)]);
             }
             {
                 let mut tile_tree_buffer = buffers.get_mut(&tile_tree.tile_tree_buffer).unwrap();

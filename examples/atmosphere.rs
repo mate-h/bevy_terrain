@@ -130,7 +130,7 @@ struct CaliforniaMaterial {
 
 impl Material for CaliforniaMaterial {
     fn fragment_shader() -> ShaderRef {
-        "shaders/atmosphere.wgsl".into()
+        "shaders/atmosphere.wesl".into()
     }
 }
 
