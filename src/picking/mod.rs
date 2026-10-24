@@ -1,3 +1,9 @@
+//! Cursor hits against the terrain mesh.
+//!
+//! Add [`TerrainPickingPlugin`] and put [`PickingData`] on the camera. After the GPU readback,
+//! `translation` is the hit in that camera's transform space, or `None` on a miss. With
+//! `big_space`, pair it with `cell`.
+
 use crate::{
     render::{TerrainViewDepthTexture, terrain_pass},
     shaders::PICKING_SHADER,
@@ -133,6 +139,11 @@ pub fn picking_hook(mut world: DeferredWorld, context: HookContext) {
     picking_data.buffer = buffer;
 }
 
+/// Cursor hit against the terrain, stored on the camera.
+///
+/// [`TerrainPickingPlugin`] fills `translation` after a GPU readback. `None` means the cursor
+/// missed. With `big_space`, `cell` is the grid cell of that hit and `translation` is the
+/// position inside it.
 #[derive(Default, Clone, Component)]
 #[component(on_add = picking_hook)]
 pub struct PickingData {
@@ -255,6 +266,7 @@ pub fn picking_pass(
     pass.dispatch_workgroups(1, 1, 1);
 }
 
+/// Reads the terrain depth under the cursor into [`PickingData`] on each camera that has it.
 pub struct TerrainPickingPlugin;
 
 impl Plugin for TerrainPickingPlugin {

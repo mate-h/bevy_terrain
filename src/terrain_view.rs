@@ -1,4 +1,5 @@
-//! Types for configuring terrain views.
+//! [`TerrainViewConfig`] is the per-camera quality knob. [`TerrainViewComponents`] maps
+//! `(terrain entity, view entity)` to the state for that pair.
 
 use bevy::{platform::collections::HashMap, prelude::*};
 
@@ -12,9 +13,10 @@ impl<C> Default for TerrainViewComponents<C> {
     }
 }
 
-/// The configuration of a terrain view.
+/// Quality settings for one camera looking at a terrain.
 ///
-/// A terrain view describes the quality settings the corresponding terrain will be rendered with.
+/// [`Default`](TerrainViewConfig::default) is what the examples start from. Distances are in
+/// multiples of a tile, not meters.
 #[derive(Clone)]
 pub struct TerrainViewConfig {
     /// The count of tiles in x and y direction per tile tree layer.
@@ -31,19 +33,26 @@ pub struct TerrainViewConfig {
     pub morph_range: f32,
     /// The blend percentage in the vertex and fragment shader.
     pub blend_range: f32,
-    /// The distance measured in tile sizes between adjacent LOD layers.
-    /// This currently has to be larger than about 6, since the tiles can only morph to the adjacent layer.
-    /// Should the morph distance be too small, this will result in morph transitions suddenly being canceled, by the next LOD.
-    /// This is dependent on the morph distance, the morph ratio and the subdivision tolerance. It can be debug with the show tiles debug view.
+    /// Distance, in tile sizes, between adjacent LOD layers.
+    ///
+    /// Keep this above about 6. Tiles only morph to the neighboring LOD, so a smaller gap
+    /// pops the transition when the next LOD arrives. `I`/`O` adjust it when [`TerrainDebugPlugin`](crate::debug::TerrainDebugPlugin) is installed.
     pub morph_distance: f64,
+    /// Distance, in tile sizes, over which fragment colors blend into the next LOD.
     pub blend_distance: f64,
-    /// The percentage tolerance added to the morph distance during tile subdivision.
-    /// This is required to counteracted the distortion of the subdivision distance estimation near the corners of the cube sphere.
-    /// For planar terrains this can be set to zero and for spherical / ellipsoidal terrains a value of around 0.1 is necessary.
+    /// Extra fraction of the subdivision distance, covering cube-sphere distortion near face corners.
+    ///
+    /// Use `0.0` on a plane and about `0.1` on a sphere or spheroid.
     pub subdivision_tolerance: f64,
+    /// Extra fraction of `blend_distance` added when streaming, so tiles arrive before they are drawn.
     pub load_tolerance: f64,
+    /// Fraction of the shape's scale. Inside this distance, vertices take the high-precision path.
     pub precision_distance: f64,
+    /// LOD of the reference tile used by that high-precision path. `0` is the finest.
+    ///
+    /// Pick a LOD the dataset actually contains.
     pub view_lod: u32,
+    /// Overlap order when several terrains share one view. Higher values win the stencil test.
     pub order: u32,
 }
 

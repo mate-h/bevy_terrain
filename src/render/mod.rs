@@ -1,9 +1,7 @@
-//! This module contains the implementation of the Uniform Distance-Dependent Level of Detail (UDLOD).
+//! View-dependent terrain mesh and the draw pipeline.
 //!
-//! This algorithm is responsible for approximating the terrain geometry.
-//! Therefore tiny mesh tiles are refined in a tile_tree-like manner in a compute shader prepass for
-//! each view. Then they are drawn using a single draw indirect call and morphed together to form
-//! one continuous surface.
+//! A compute prepass refines a quadtree of tiles per view, morphs LODs so they meet, and draws
+//! the result with one indirect call. The type to add to an app is [`TerrainMaterialPlugin`].
 
 mod terrain_bind_group;
 mod terrain_material;

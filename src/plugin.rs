@@ -1,3 +1,8 @@
+//! [`TerrainPlugin`] drives streaming and rendering.
+//!
+//! Insert [`TerrainSettings`] before the first [`spawn_terrain`](crate::spawn::SpawnTerrainCommandsExt::spawn_terrain).
+//! The default settings bind height only.
+
 use crate::{
     floating_origin::register_plugins,
     formats::{TerrainConfigLoader, TiffLoader},
@@ -39,9 +44,16 @@ use bevy::{
     },
 };
 
+/// Which attachments to bind, and how many tiles the atlas can hold.
+///
+/// Insert this before any terrain spawns. Height is always included.
+/// `TerrainSettings::new(vec!["albedo"])` also binds that name. The shader sees it as
+/// `albedo_attachment` and `terrain_data.attachments.albedo`.
 #[derive(Resource)]
 pub struct TerrainSettings {
+    /// Height first, then one entry per extra attachment, in bind order.
     pub attachments: Vec<AttachmentLabel>,
+    /// How many tiles can be resident at once. This is the texture-array depth.
     pub atlas_size: u32,
 }
 
@@ -55,6 +67,7 @@ impl Default for TerrainSettings {
 }
 
 impl TerrainSettings {
+    /// Height, plus `custom_attachments` in the order given.
     pub fn new(custom_attachments: Vec<&str>) -> Self {
         let mut attachments = vec![AttachmentLabel::Height];
         attachments.extend(
@@ -119,7 +132,9 @@ fn cleanup_despawned_gpu_terrains(
     tiling_prepass_items.retain(|(terrain, _view), _| live.contains(terrain));
 }
 
-/// The plugin for the terrain renderer.
+/// Streaming, tile loading, and the terrain render passes.
+///
+/// With the `big_space` feature this also adds `BigSpaceDefaultPlugins`.
 pub struct TerrainPlugin;
 
 impl Plugin for TerrainPlugin {

@@ -37,7 +37,7 @@ const VIEW_UPDATE_THRESHOLD: f64 = 2.0;
 
 /// The current state of a tile of a [`TileTree`].
 ///
-/// This indicates, whether or not the tile should be loaded into the [`TileAtlas`).
+/// This indicates whether the tile should be loaded into the [`TileAtlas`].
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RequestState {
     /// The tile should be loaded.
@@ -63,11 +63,7 @@ impl Default for TileState {
     }
 }
 
-/// An entry of the [`TileTree`], used to access the best currently loaded tile
-/// of the [`TileAtlas`] on the CPU.
-///
-/// These entries are synced each frame with their equivalent representations in the
-/// [`GpuTileTree`](super::gpu_tile_tree::GpuTileTree) for access on the GPU.
+/// Best resident atlas slot for one node of a [`TileTree`]. Copied to the GPU each frame.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct TileTreeEntry {
@@ -88,29 +84,15 @@ impl Default for TileTreeEntry {
     }
 }
 
+/// `(terrain, view)` identity of a readback entity that is not parented to the terrain.
 #[derive(Component)]
 pub struct TerrainViewKey(pub (Entity, Entity));
 
-/// A quadtree-like view of a terrain, that requests and releases tiles from the [`TileAtlas`]
-/// depending on the distance to the viewer.
+/// Per-view quadtree that asks the [`TileAtlas`] for tiles around one camera.
 ///
-/// It can be used to access the best currently loaded tile of the [`TileAtlas`].
-/// Additionally its sends this data to the GPU via the
-/// [`GpuTileTree`](super::gpu_tile_tree::GpuTileTree) so that it can be utilised
-/// in shaders as well.
-///
-/// Each view (camera, shadow-casting light) that should consider the terrain has to
-/// have an associated tile tree.
-///
-/// This tile tree is a "cube" with a size of (`tree_size`x`tree_size`x`lod_count`), where each layer
-/// corresponds to a lod. These layers are wrapping (modulo `tree_size`), that means that
-/// the tile tree is always centered under the viewer and only considers `tree_size` / 2 tiles
-/// in each direction.
-///
-/// Each frame the tile tree determines the state of each tile via the
-/// `compute_requests` methode.
-/// After the [`TileAtlas`] has adjusted to these requests, the tile tree retrieves the best
-/// currently loaded tiles from the tile atlas via the `adjust` methode, which can later be used to access the terrain data.
+/// `spawn_terrain` creates one tree for the `(terrain, view)` pair. The tree is a wrapping
+/// window of `tree_size` tiles around the viewer at every LOD. Shaders read the best resident
+/// tile at each node from a buffer this uploads.
 #[derive(Component)]
 pub struct TileTree {
     /// The current cpu tile_tree data. This is synced each frame with the gpu tile_tree data.
@@ -162,7 +144,7 @@ pub struct TileTree {
 }
 
 impl TileTree {
-    /// Creates a new tile_tree from a terrain and a terrain view config.
+    /// Tree for one `(terrain, view)` pair. `spawn_terrain` calls this.
     pub fn new(
         config: &TerrainConfig,
         view_config: &TerrainViewConfig,

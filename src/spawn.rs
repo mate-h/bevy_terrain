@@ -1,3 +1,5 @@
+//! [`SpawnTerrainCommandsExt::spawn_terrain`] queues a terrain and spawns it once the config asset loads.
+
 use crate::{
     floating_origin::parent_terrain_under_big_space,
     plugin::TerrainSettings,
@@ -114,8 +116,13 @@ pub(crate) fn spawn_terrains<M: Material>(
     });
 }
 
+/// Queue a terrain from a loaded [`TerrainConfig`].
 pub trait SpawnTerrainCommandsExt<M: Material> {
-    // define a method that we will be able to call on `commands`
+    /// Spawn `config` for `view` (a camera) once the asset is loaded.
+    ///
+    /// Register [`TerrainMaterialPlugin`](crate::render::TerrainMaterialPlugin) for `M` first.
+    /// `config` is usually `asset_server.load("terrains/<name>/config.tc.ron")`.
+    /// [`TerrainViewConfig::default`](crate::terrain_view::TerrainViewConfig::default) is a fine start.
     fn spawn_terrain(
         &mut self,
         config: Handle<TerrainConfig>,

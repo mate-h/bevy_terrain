@@ -1,5 +1,8 @@
-//! Contains a debug resource and systems controlling it to visualize different internal
-//! data of the plugin.
+//! [`TerrainDebugPlugin`] adds LOD overlays and, with `big_space`, fly and orbit cameras.
+//!
+//! Keys, when the plugin is added: `W` wireframe, `L` data LOD, `Y` geometry LOD, `Q` tile tree,
+//! `N`/`E` blend distance, `I`/`O` morph distance. `T` toggles the fly camera and `R` the orbit
+//! camera.
 #[cfg(feature = "big_space")]
 use crate::debug::{debug_camera_controller, orbital_camera_controller};
 use crate::{
@@ -34,12 +37,15 @@ mod metal_capture;
 #[cfg(all(feature = "metal_capture", target_vendor = "apple"))]
 pub use self::metal_capture::MetalCapturePlugin;
 
+/// Unlit stand-in material. Uses the default terrain fragment shader.
 #[derive(Asset, AsBindGroup, TypePath, Clone, Default)]
 pub struct DebugTerrainMaterial {}
 
 impl Material for DebugTerrainMaterial {}
 
-/// Adds a terrain debug config, a debug camera and debug control systems.
+/// LOD overlays, plus the fly and orbit cameras when `big_space` is enabled.
+///
+/// See the [module docs](self) for keys.
 pub struct TerrainDebugPlugin;
 
 impl Plugin for TerrainDebugPlugin {
@@ -71,6 +77,7 @@ impl Plugin for TerrainDebugPlugin {
     }
 }
 
+/// Shader-def toggles driven by [`TerrainDebugPlugin`]. Flip fields from a system, or use the keys.
 #[derive(Clone, Resource)]
 pub struct DebugTerrain {
     pub wireframe: bool,
@@ -329,6 +336,10 @@ pub fn debug_window(mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>) 
     cursor.visible = true; // false;
 }
 
+/// Forces dimension and format onto images once they finish loading.
+///
+/// [`TerrainDebugPlugin`] polls this. Use it for material textures whose file format Bevy
+/// would otherwise guess wrong.
 #[derive(Resource, Default)]
 pub struct LoadingImages(Vec<(AssetId<Image>, TextureDimension, TextureFormat)>);
 

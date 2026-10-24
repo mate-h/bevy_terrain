@@ -1,5 +1,9 @@
 //! Mount Baker terrain viewer — preprocessed from `source_data/mount_baker_full.tif`.
 //!
+//! Uses Bevy's deferred G-buffer and terrain shadows. The sun starts at a raking
+//! local angle; a dimmer moon stays above the horizon so light selection can
+//! pick it when the sun sets. `R` despawns / respawns the terrain entity.
+//!
 //! Preprocess first:
 //! `cargo run --release -p bevy_terrain_preprocess --example preprocess_mount_baker`
 //!
@@ -9,13 +13,14 @@
 use bevy::{
     camera::Exposure,
     camera_controller::free_camera::{FreeCamera, FreeCameraPlugin},
+    core_pipeline::prepass::{DeferredPrepass, DepthPrepass, MotionVectorPrepass},
     input::keyboard::KeyCode,
     light::{
         atmosphere::ScatteringMedium, light_consts::lux, Atmosphere, AtmosphereEnvironmentMapLight,
         SunDisk, VolumetricLight,
     },
     math::DVec3,
-    pbr::{AtmosphereMode, AtmosphereSettings},
+    pbr::{AtmosphereMode, AtmosphereSettings, DefaultOpaqueRendererMethod},
     post_process::bloom::Bloom,
     prelude::*,
     reflect::TypePath,
@@ -40,9 +45,20 @@ const MOUNT_BAKER_LOD: u32 = 15;
 /// Stay within the lod-15 load radius (~7 km) so tiles stream in.
 const MOUNT_BAKER_CAMERA_ALTITUDE: f64 = 5_000.0;
 
+#[derive(Component)]
+struct Sun {
+    axis: Dir3,
+}
+
 #[derive(Resource, Default)]
 struct GameState {
     paused: bool,
+}
+
+#[derive(Resource)]
+struct TerrainSpawn {
+    view: Entity,
+    config: Handle<TerrainConfig>,
 }
 
 #[derive(Asset, AsBindGroup, TypePath, Clone, Default)]
@@ -100,6 +116,7 @@ fn main() {
         .insert_resource(ClearColor(Color::BLACK))
         .insert_resource(GameState::default())
         .insert_resource(GlobalAmbientLight::NONE)
+        .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(TerrainSettings::default())
         .insert_resource(TerrainShadowSettings {
             enabled: true,
@@ -123,7 +140,7 @@ fn main() {
             TerrainMaterialPlugin::<MountBakerMaterial>::default(),
         ))
         .add_systems(Startup, (setup_scene, print_controls).chain())
-        .add_systems(Update, (dynamic_scene, scene_controls))
+        .add_systems(Update, (dynamic_scene, scene_controls, terrain_lifecycle))
         .run();
 }
 
@@ -131,6 +148,7 @@ fn print_controls() {
     println!("Mount Baker Controls:");
     println!("    Enter      - Pause/Resume sun motion");
     println!("    T          - Toggle terrain shadows on/off");
+    println!("    R          - Despawn / respawn terrain");
     println!("    Up/Down    - Increase/Decrease exposure");
     println!("    WASD       - Move camera (FreeCamera)");
 }
@@ -183,20 +201,44 @@ fn setup_scene(
          at ({MOUNT_BAKER_CENTER_LAT:.4}°, {MOUNT_BAKER_CENTER_LON:.4}°)"
     );
 
+    let surface = mount_baker_surface_point();
+    let up = mount_baker_surface_normal();
+    let up_vec = up.as_vec3();
+    let mut east = Vec3::Y.cross(up_vec);
+    if east.length_squared() < 1e-8 {
+        east = Vec3::X;
+    }
+    let east = east.normalize();
+    let north = up_vec.cross(east);
+    // Raking sun in the local ground frame (same feel as the old world +X/+Y light).
+    let to_sun = (east + north * 0.3 + up_vec * 0.45).normalize();
+
     commands.spawn((
+        Name::new("sun"),
+        Sun {
+            axis: Dir3::new_unchecked(north),
+        },
         DirectionalLight {
             shadow_maps_enabled: true,
             contact_shadows_enabled: true,
             illuminance: lux::RAW_SUNLIGHT,
             ..default()
         },
-        Transform::from_xyz(1.0, 0.4, 0.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::IDENTITY.looking_to(-to_sun, up_vec),
         VolumetricLight,
         SunDisk::EARTH,
     ));
+    commands.spawn((
+        Name::new("moon"),
+        DirectionalLight {
+            shadow_maps_enabled: true,
+            illuminance: 2_000.0,
+            ..default()
+        },
+        Transform::IDENTITY.looking_to(-up_vec, east),
+        VolumetricLight,
+    ));
 
-    let surface = mount_baker_surface_point();
-    let up = mount_baker_surface_normal();
     let camera_position = surface + up.as_vec3().as_dvec3() * MOUNT_BAKER_CAMERA_ALTITUDE;
     let look_dir = (surface.as_vec3() - camera_position.as_vec3()).normalize();
 
@@ -225,6 +267,9 @@ fn setup_scene(
                     rendering_method: AtmosphereMode::Raymarched,
                     ..default()
                 },
+                DeferredPrepass,
+                DepthPrepass,
+                MotionVectorPrepass,
                 FreeCamera {
                     walk_speed: 250.0,
                     run_speed: 1000.0,
@@ -237,8 +282,9 @@ fn setup_scene(
             .id();
     });
 
+    let config = asset_server.load("terrains/mount_baker/config.tc.ron");
     commands.spawn_terrain(
-        asset_server.load("terrains/mount_baker/config.tc.ron"),
+        config.clone(),
         TerrainViewConfig {
             view_lod: MOUNT_BAKER_LOD,
             ..default()
@@ -246,15 +292,49 @@ fn setup_scene(
         MountBakerMaterial::default(),
         view,
     );
+    commands.insert_resource(TerrainSpawn { view, config });
+}
+
+fn spawn_mount_baker_terrain(commands: &mut Commands, spawn: &TerrainSpawn) {
+    commands.spawn_terrain(
+        spawn.config.clone(),
+        TerrainViewConfig {
+            view_lod: MOUNT_BAKER_LOD,
+            ..default()
+        },
+        MountBakerMaterial::default(),
+        spawn.view,
+    );
+}
+
+fn terrain_lifecycle(
+    mut commands: Commands,
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    spawn: Res<TerrainSpawn>,
+    terrains: Query<Entity, With<TileAtlas>>,
+) {
+    if !keyboard_input.just_pressed(KeyCode::KeyR) {
+        return;
+    }
+
+    if let Some(terrain) = terrains.iter().next() {
+        println!("Despawned terrain {terrain}");
+        commands.entity(terrain).despawn();
+    } else {
+        println!("Respawning terrain");
+        spawn_mount_baker_terrain(&mut commands, &spawn);
+    }
 }
 
 fn dynamic_scene(
-    mut suns: Query<&mut Transform, With<DirectionalLight>>,
+    mut suns: Query<(&mut Transform, &Sun)>,
     time: Res<Time>,
     game_state: Res<GameState>,
 ) {
     if !game_state.paused {
-        suns.iter_mut()
-            .for_each(|mut tf| tf.rotate_x(-time.delta_secs() * PI / 10.0));
+        let dt = time.delta_secs() * PI / 10.0;
+        for (mut transform, sun) in &mut suns {
+            transform.rotate_axis(sun.axis, -dt);
+        }
     }
 }

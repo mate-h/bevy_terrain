@@ -7,7 +7,7 @@ import bevy_terrain::shaders::functions::{compute_coordinate, compute_world_coor
 import bevy_terrain::shaders::attachments::{sample_height_mask, sample_surface_gradient};
 import bevy_terrain::shaders::debug::{show_data_lod, show_geometry_lod, show_tile_tree, show_pixels};
 import bevy_pbr::render::mesh_view_bindings::view;
-import bevy_pbr::render::pbr_types::{PbrInput, pbr_input_new};
+import bevy_pbr::render::pbr_types::{PbrInput, pbr_input_new, STANDARD_MATERIAL_FLAGS_UNLIT_BIT};
 import bevy_pbr::render::pbr_functions::{calculate_view, apply_pbr_lighting};
 import bevy_pbr::render::mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT;
 @if(DEFERRED_PREPASS) import bevy_pbr::deferred::functions::deferred_gbuffer_from_pbr_input;
@@ -80,22 +80,22 @@ fn fragment_output(info: ptr<function, FragmentInfo>, output: ptr<function, Frag
     // Receive Bevy cascade / contact shadows from mesh casters (spheres, etc.).
     @if(LIGHTING)
     pbr_input.flags                         = MESH_FLAGS_SHADOW_RECEIVER_BIT;
+    @if(LIGHTING)
+    pbr_input.V = calculate_view(world_position, pbr_input.is_orthographic);
+    @if((LIGHTING) && (TERRAIN_SHADOW))
+    pbr_input.directional_shadow_factor = terrain_shadow_factor_at(world_position.xyz, terrain_shadow, shadow_map, shadow_map_sampler);
 
-    // Pack into the G-buffer for the deferred lighting pass (or its
-    // replacement) to shade. The packer applies the gamma / rgb9e5
-    // encodings itself and never reads `V`; the terrain-shadow factor has
-    // no G-buffer slot and is skipped.
+    // Bevy's deferred lighting pass reconstructs `directional_shadow_factor`
+    // as 1.0. Shade here (same as forward) and mark the G-buffer unlit so
+    // that pass copies the already-shadowed color.
     @if((LIGHTING) && (DEFERRED_PREPASS)) {
-    (*output).deferred                  = deferred_gbuffer_from_pbr_input(pbr_input);
+    pbr_input.material.base_color = apply_pbr_lighting(pbr_input);
+    pbr_input.material.flags = pbr_input.material.flags | STANDARD_MATERIAL_FLAGS_UNLIT_BIT;
+    (*output).deferred = deferred_gbuffer_from_pbr_input(pbr_input);
     }
-    // 1 = PBR deferred lighting (`pbr_input_new` default).
     @if((LIGHTING) && (DEFERRED_PREPASS)) {
     (*output).deferred_lighting_pass_id = pbr_input.material.deferred_lighting_pass_id;
     }
-    @if((LIGHTING) && (!(DEFERRED_PREPASS)))
-    pbr_input.V = calculate_view(world_position, pbr_input.is_orthographic);
-    @if((LIGHTING) && (!(DEFERRED_PREPASS)) && (TERRAIN_SHADOW))
-    pbr_input.directional_shadow_factor = terrain_shadow_factor_at(world_position.xyz, terrain_shadow, shadow_map, shadow_map_sampler);
 
     @if((LIGHTING) && (!(DEFERRED_PREPASS))) {
     (*output).color = apply_pbr_lighting(pbr_input);

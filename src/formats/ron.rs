@@ -3,6 +3,7 @@ use bevy::asset::{AssetLoader, LoadContext, io::Reader};
 use bevy::prelude::*;
 use std::io;
 
+/// Loads `*.tc.ron` files as [`TerrainConfig`](crate::terrain::TerrainConfig).
 #[derive(Default, TypePath)]
 pub struct TerrainConfigLoader;
 
