@@ -1,3 +1,6 @@
+//! Cube-sphere positions. [`Coordinate`] is a face plus UV, [`TileCoordinate`] names one tile,
+//! and [`TerrainShape`] turns those into world positions for a plane, sphere, or WGS84 spheroid.
+
 use bevy::math::{DMat3, DVec2, IVec2};
 use std::mem;
 

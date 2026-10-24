@@ -46,7 +46,7 @@ impl GpuTileAtlas {
     /// value is the surface height in metres (no min/max remap).
     ///
     /// The texture is resident and stable for the whole render graph once
-    /// [`GpuTileAtlas::prepare`] has run this frame; a consumer reacting to a
+    /// `GpuTileAtlas::prepare` has run this frame; a consumer reacting to a
     /// `TerrainTileReady` message should treat the slot as GPU-resident from the
     /// following frame (the CPU-ready edge precedes the texture upload by one
     /// frame).

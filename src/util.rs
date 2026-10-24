@@ -1,3 +1,5 @@
+//! Writing shader uniform and storage buffers. Most apps never call this.
+
 use bevy::render::{
     render_resource::{encase::internal::WriteInto, *},
     renderer::{RenderDevice, RenderQueue},

@@ -52,18 +52,13 @@ struct TileState {
 // Todo: rename to terrain?
 // Todo: consider turning this into an asset
 
-/// A sparse storage of all terrain attachments, which streams data in and out of memory
-/// depending on the decisions of the corresponding [`TileTree`]s.
+/// Sparse cache of tiled attachments for one terrain.
 ///
-/// A tile is considered present and assigned an [`u32`] as soon as it is
-/// requested by any tile_tree. Then the tile atlas will start loading all of its attachments
-/// by storing the [`TileCoordinate`] (for one frame) in `load_events` for which
-/// attachment-loading-systems can listen.
-/// Tiles that are not being used by any tile_tree anymore are cached (LRU),
-/// until new atlas indices are required.
-///
-/// The [`u32`] can be used for accessing the attached data in systems by the CPU
-/// and in shaders by the GPU.
+/// [`spawn_terrain`](crate::spawn::SpawnTerrainCommandsExt::spawn_terrain) creates this.
+/// Each [`TileTree`] requests tiles around its viewer. The atlas loads those tiles, keeps an
+/// LRU of tiles nobody is using, and uploads them into a texture array.
+/// [`TerrainTileReady`](super::TerrainTileReady) and [`TerrainTileDropped`](super::TerrainTileDropped)
+/// report when a tile enters or leaves that array.
 #[derive(Component)]
 #[require(Transform, Visibility, VisibilityClass, DefaultLoader)]
 #[cfg_attr(feature = "big_space", require(CellCoord))]
@@ -94,7 +89,7 @@ pub struct TileAtlas {
 }
 
 impl TileAtlas {
-    /// Creates a new tile_tree from a terrain config.
+    /// Atlas for `config`, with `settings.atlas_size` slots.
     pub fn new(config: &TerrainConfig, settings: &TerrainSettings) -> Self {
         let attachments = config
             .attachments

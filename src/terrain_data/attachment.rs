@@ -6,11 +6,19 @@ use serde::{Deserialize, Serialize};
 use std::{fmt::Error, path::PathBuf, str::FromStr};
 use strum_macros::EnumIter;
 
+/// Name of one tiled image in a dataset.
+///
+/// Height is always present. A [`Custom`](AttachmentLabel::Custom) name such as `"albedo"`
+/// must be listed in [`TerrainSettings::new`](crate::plugin::TerrainSettings::new) for the
+/// shader to bind `<name>_attachment`.
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash, Default)]
 pub enum AttachmentLabel {
+    /// The elevation attachment. Always bound.
     #[default]
     Height,
+    /// Any other attachment. The string matches the folder the preprocess tool wrote.
     Custom(String), // Todo: this should not be a heap allocated string
+    /// Padding slot so the shader can declare a fixed set of attachment bindings.
     Empty(usize),
 }
 
@@ -127,13 +135,16 @@ impl AttachmentFormat {
 }
 
 /// Configures an attachment.
+/// Pixel format and tile size of one attachment, as stored in `config.tc.ron`.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AttachmentConfig {
-    /// The name of the attachment.
+    /// Tile edge length in texels, including the border.
     pub texture_size: u32,
     /// The overlapping border size around the tile, used to prevent sampling artifacts.
     pub border_size: u32,
+    /// Mip levels stored for this attachment.
     pub mip_level_count: u32,
+    /// On the height attachment, a texel whose low bit is clear is nodata and the shader discards it.
     pub mask: bool,
     /// The format of the attachment.
     pub format: AttachmentFormat,

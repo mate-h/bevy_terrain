@@ -1,11 +1,20 @@
+//! Embedded terrain shaders. Custom materials usually keep [`DEFAULT_VERTEX_SHADER`] and
+//! replace the fragment shader. Import `bevy_terrain::shaders::attachments` and
+//! `bevy_terrain::shaders::render::fragment` from that shader. See the [crate docs](crate)
+//! for the fragment contract.
+
 use crate::terrain_data::AttachmentLabel;
 use bevy::{asset::embedded_asset, prelude::*};
 use itertools::Itertools;
 
+/// Vertex shader materials should keep. It lays out the quadtree mesh.
 pub const DEFAULT_VERTEX_SHADER: &str = "embedded://bevy_terrain/shaders/render/vertex.wesl";
+/// Fragment shader used when a material does not override it. Debug views live here.
 pub const DEFAULT_FRAGMENT_SHADER: &str = "embedded://bevy_terrain/shaders/render/fragment.wesl";
+/// Compute pass that builds the list of tiles to refine.
 pub const PREPARE_PREPASS_SHADER: &str =
     "embedded://bevy_terrain/shaders/tiling_prepass/prepare_prepass.wesl";
+/// Compute pass that subdivides that list. Not something a material replaces.
 pub const REFINE_TILES_SHADER: &str =
     "embedded://bevy_terrain/shaders/tiling_prepass/refine_tiles.wesl";
 // pub(crate) const SPLIT_SHADER: &str = "embedded://bevy_terrain/shaders/preprocess/split.wesl";

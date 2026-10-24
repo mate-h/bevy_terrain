@@ -2,10 +2,17 @@ use crate::math::spheroid::project_point_spheroid;
 use bevy::{math::DVec3, prelude::*};
 use serde::{Deserialize, Serialize};
 
+/// World shape stored on [`TerrainConfig`](crate::terrain::TerrainConfig).
+///
+/// A plane is one face. A sphere or spheroid is a six-face cube-sphere.
+/// [`TerrainShape::WGS84`] is the Earth ellipsoid the GeoTIFF preprocess path writes.
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum TerrainShape {
+    /// Flat map. `side_length` is the full width and depth. UV `(0.5, 0.5)` is the center.
     Plane { side_length: f64 },
+    /// Cube-sphere with this radius, in meters.
     Sphere { radius: f64 },
+    /// Ellipsoid. `major_axis` is the equatorial radius and `minor_axis` the polar radius, in meters.
     Spheroid { major_axis: f64, minor_axis: f64 },
 }
 
@@ -54,7 +61,7 @@ impl TerrainShape {
     /// Returns atmosphere radii and an initial planet-center transform for a flat map
     /// centered at the origin, with the planet north pole aligned to world `(0, 0, 0)` at `+Y`.
     ///
-    /// At runtime, call [`planar_atmosphere_center`] each frame with the camera's horizontal
+    /// At runtime, call [`planar_atmosphere_center`](Self::planar_atmosphere_center) each frame with the camera's horizontal
     /// position so the spherical atmosphere stays tangent to the flat terrain (+Y up).
     pub fn planar_atmosphere_alignment(
         min_height: f32,

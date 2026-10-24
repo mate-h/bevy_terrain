@@ -54,6 +54,7 @@ pub struct RotationData {
     initial_tilt: f64,
 }
 
+/// Orbit camera for `big_space` worlds. `R` toggles it. The component requires [`PickingData`].
 #[derive(Clone, Debug, Component)]
 #[require(PickingData, Camera3d, FloatingOrigin = FloatingOrigin)]
 pub struct OrbitalCameraController {

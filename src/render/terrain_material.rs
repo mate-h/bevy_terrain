@@ -566,9 +566,12 @@ pub(crate) fn queue_terrain<M: Material>(
     }
 }
 
-/// This plugin adds a custom material for a terrain.
+/// Draw terrains with the Bevy [`Material`](bevy::prelude::Material) `M`.
 ///
-/// It can be used to render the terrain using a custom vertex and fragment shader.
+/// Add one plugin per material type. Replace the fragment shader; keep
+/// [`DEFAULT_VERTEX_SHADER`](crate::shaders::DEFAULT_VERTEX_SHADER) unless the tile vertex
+/// layout changes. Material bindings belong in bind group 4. See the [crate docs](crate)
+/// for the shader imports.
 pub struct TerrainMaterialPlugin<M: Material>(PhantomData<M>);
 
 impl<M: Material> Default for TerrainMaterialPlugin<M> {

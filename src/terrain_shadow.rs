@@ -19,7 +19,10 @@ use bevy::{
 /// The angular radius of the sun as seen from earth, in radians (~0.265 degrees).
 const SUN_ANGULAR_RADIUS: f32 = 0.004625;
 
-/// Settings for the raymarched terrain shadow map.
+/// Raymarched heightfield shadow. Off until `enabled` is set.
+///
+/// [`TerrainPlugin`](crate::plugin::TerrainPlugin) inserts the default. Other materials sample
+/// the same map; see `terrain_shadow_factor_at` in `bevy_terrain::shaders::terrain_shadow`.
 #[derive(Resource, Clone)]
 pub struct TerrainShadowSettings {
     pub enabled: bool,
