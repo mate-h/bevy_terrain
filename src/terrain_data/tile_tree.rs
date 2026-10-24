@@ -1,7 +1,7 @@
 use crate::{
     floating_origin::view_local_position,
     math::{Coordinate, TerrainShape, TileCoordinate},
-    render::{TerrainViewUniform, TileTreeUniform},
+    render::TerrainViewUniform,
     terrain::TerrainConfig,
     terrain_data::{
         INVALID_ATLAS_INDEX, INVALID_LOD, TerrainTileDropped, TerrainTileReady, TileAtlas,
@@ -23,7 +23,7 @@ use bevy::{
 #[cfg(feature = "big_space")]
 use big_space::prelude::{CellCoord, Grids};
 use bevy::render::render_resource::encase::{internal::WriteInto, StorageBuffer};
-use itertools::{Itertools, iproduct};
+use itertools::iproduct;
 use ndarray::Array4;
 use std::{cmp::Ordering, iter};
 
@@ -80,13 +80,15 @@ impl Default for TileState {
 /// These entries are synced each frame with their equivalent representations in the
 /// [`GpuTileTree`](super::gpu_tile_tree::GpuTileTree) for access on the GPU.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, ShaderType)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct TileTreeEntry {
     /// The atlas index of the best entry.
     pub(crate) atlas_index: u32,
     /// The atlas lod of the best entry.
     pub(crate) atlas_lod: u32,
 }
+
+const _: () = assert!(size_of::<TileTreeEntry>() == 8);
 
 impl Default for TileTreeEntry {
     fn default() -> Self {
@@ -544,12 +546,11 @@ impl TileTree {
             }
             {
                 let mut tile_tree_buffer = buffers.get_mut(&tile_tree.tile_tree_buffer).unwrap();
-                upload_shader_buffer(
-                    &mut tile_tree_buffer,
-                    &TileTreeUniform {
-                        entries: tile_tree.data.clone().into_iter().collect_vec(),
-                    },
-                );
+                tile_tree_buffer.clear();
+                // `data` is a contiguous `Array4`, and `TileTreeEntry` is two
+                // `u32`s, so this matches the WGSL `array<TileTreeEntry>` layout
+                // without cloning the grid into a `Vec` first.
+                tile_tree_buffer.extend_from_slice(tile_tree.data.as_slice().unwrap());
             }
         }
     }

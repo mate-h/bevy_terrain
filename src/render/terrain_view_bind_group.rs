@@ -2,7 +2,7 @@ use crate::{
     debug::DebugTerrain,
     math::{TileCoordinate, ViewCoordinate},
     render::{TerrainTilingPrepassPipelines, terrain_shadow::GpuTerrainShadow},
-    terrain_data::{TileTree, TileTreeEntry},
+    terrain_data::TileTree,
     terrain_shadow::TerrainShadowUniform,
     terrain_view::TerrainViewComponents,
 };
@@ -111,12 +111,6 @@ pub(crate) struct PrepassState {
     counter: i32,
     child_index: i32,
     final_index: i32,
-}
-
-#[derive(Default, ShaderType)]
-pub struct TileTreeUniform {
-    #[shader(size(runtime))]
-    pub(crate) entries: Vec<TileTreeEntry>,
 }
 
 #[derive(ShaderType)]
