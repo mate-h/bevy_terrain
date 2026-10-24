@@ -70,7 +70,8 @@ fn terrain_shadow_factor(world_position: vec3<f32>) -> f32 {
     let elevation = dot(delta, terrain_shadow.up) + dot(horizontal, horizontal) * terrain_shadow.curvature;
 
     let shadow     = textureSampleLevel(shadow_map, shadow_map_sampler, uv, 0.0);
-    let penumbra   = max(terrain_shadow.min_penumbra, shadow.g * terrain_shadow.penumbra_scale);
+    let ray_length = shadow.g * terrain_shadow.max_distance;
+    let penumbra   = max(terrain_shadow.min_penumbra, ray_length * terrain_shadow.penumbra_scale);
     let visibility = smoothstep(0.0, 1.0, (elevation - shadow.r) / penumbra + 0.5);
 
     // Fade out towards the edge of the map, so shadows vanish smoothly instead of
