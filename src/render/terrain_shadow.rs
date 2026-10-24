@@ -131,6 +131,22 @@ pub struct GpuTerrainShadow {
 }
 
 impl GpuTerrainShadow {
+    /// The shadow map. It lives as long as the terrain view and the raymarch
+    /// rewrites it in place, so external bind groups can hold onto it.
+    pub fn texture_view(&self) -> &TextureView {
+        &self.texture_view
+    }
+
+    pub fn sampler(&self) -> &Sampler {
+        &self.sampler
+    }
+
+    /// The `TerrainShadowUniform` buffer, rewritten every frame. `enabled`
+    /// is 0 until the raymarch can run.
+    pub fn params_buffer(&self) -> &Buffer {
+        &self.params_buffer
+    }
+
     fn new(
         device: &RenderDevice,
         pipeline_cache: &PipelineCache,

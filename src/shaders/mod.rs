@@ -68,6 +68,7 @@ pub(crate) fn load_terrain_shaders(app: &mut App, attachments: &[AttachmentLabel
     embedded_asset!(app, "functions.wesl");
     embedded_asset!(app, "heightfield.wesl");
     embedded_asset!(app, "shadow_map.wesl");
+    embedded_asset!(app, "terrain_shadow.wesl");
     embedded_asset!(app, "debug.wesl");
     embedded_asset!(app, "render/vertex.wesl");
     embedded_asset!(app, "render/fragment.wesl");
@@ -88,6 +89,7 @@ pub(crate) fn load_terrain_shaders(app: &mut App, attachments: &[AttachmentLabel
             "embedded://bevy_terrain/shaders/attachments.wesl",
             "embedded://bevy_terrain/shaders/functions.wesl",
             "embedded://bevy_terrain/shaders/heightfield.wesl",
+            "embedded://bevy_terrain/shaders/terrain_shadow.wesl",
             "embedded://bevy_terrain/shaders/debug.wesl",
             "embedded://bevy_terrain/shaders/render/vertex.wesl",
             "embedded://bevy_terrain/shaders/render/fragment.wesl",
