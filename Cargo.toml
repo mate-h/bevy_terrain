@@ -26,8 +26,8 @@ bluenoise_texture = ["bevy/bluenoise_texture"]
 atmosphere_example = ["bevy/free_camera", "bevy/https", "bevy/tonemapping_luts"]
 
 [dependencies]
-bevy = { git = "https://github.com/bevyengine/bevy", branch = "main", default-features = false, features = ["3d"] }
-big_space = { git = "https://github.com/mate-h/big_space", branch = "bevy-main", features = ["i32"], optional = true }
+bevy = { version = "0.20", default-features = false, features = ["3d"] }
+big_space = { git = "https://github.com/mate-h/big_space", branch = "bevy-0.20.0", features = ["i32"], optional = true }
 tiff = "0.10"
 bytemuck = { version = "1.14", features = ["derive"] }
 ndarray = "0.16.1"
