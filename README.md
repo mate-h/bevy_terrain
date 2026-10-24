@@ -3,7 +3,7 @@
 [![crates.io](https://img.shields.io/crates/v/bevy_terrain)](https://crates.io/crates/bevy_terrain)
 [![docs.rs](https://docs.rs/bevy_terrain/badge.svg)](https://docs.rs/bevy_terrain)
 
-![California terrain in the atmosphere example](https://raw.githubusercontent.com/mate-h/bevy_terrain/bevy-0.20.0/images/atmosphere.webp)
+![California terrain in the atmosphere example](https://raw.githubusercontent.com/mate-h/bevy_terrain/main/images/atmosphere.webp)
 
 A Bevy plugin for large-scale planetary and planar terrain. It streams tiled height and attachment data, builds view-dependent geometry, and keeps GPU positions stable at planetary scale.
 
@@ -31,18 +31,26 @@ Requires Bevy 0.20. The `big_space` feature is enabled by default. Disable defau
 bevy_terrain = { version = "0.1", default-features = false }
 ```
 
-The GDAL preprocess tool lives in this repository (`preprocess/`) and is not published.
+## Preprocessing
+
+`bevy_terrain_preprocess` tiles a GeoTIFF or a plain heightmap into `config.tc.ron` plus the tile files the renderer streams. Install GDAL first ([macOS, Ubuntu, and Windows](https://github.com/mate-h/bevy_terrain/blob/main/preprocess/README.md#gdal)), then:
+
+```bash
+cargo install --git https://github.com/mate-h/bevy_terrain bevy_terrain_preprocess
+```
+
+The executable is `bevy_terrain_preprocess`. CLI flags are in the [preprocess README](https://github.com/mate-h/bevy_terrain/blob/main/preprocess/README.md).
 
 ## Bevy version
 
 | Branch | Bevy |
 | --- | --- |
-| [`bevy-0.20.0`](https://github.com/mate-h/bevy_terrain/tree/bevy-0.20.0) (and `main` after the 0.20 release) | 0.20 from crates.io |
+| [`main`](https://github.com/mate-h/bevy_terrain/tree/main) | 0.20 from crates.io |
 | [`bevy-main`](https://github.com/mate-h/bevy_terrain/tree/bevy-main) | Bevy `main` |
 
 ## Examples
 
-Preprocess a GeoTIFF first (see [`preprocess/README.md`](https://github.com/mate-h/bevy_terrain/blob/bevy-0.20.0/preprocess/README.md)). Example datasets are [here](https://drive.proton.me/urls/ZRDAC9SWTM#IxwKkKWSBgnV). Put source rasters in `source_data` and write tiles under `assets/terrains/<name>/`.
+Preprocess a dataset first (see [Preprocessing](#preprocessing)). Example datasets are [here](https://drive.proton.me/urls/ZRDAC9SWTM#IxwKkKWSBgnV). Put source rasters in `source_data` and write tiles under `assets/terrains/<name>/`.
 
 ```bash
 # California + atmosphere (needs assets/terrains/california)
@@ -66,9 +74,9 @@ Atmosphere examples use Bevy's free camera (`WASD`, mouse). Mount Baker uses def
 
 ## Screenshots
 
-![Earth from the spherical example](https://raw.githubusercontent.com/mate-h/bevy_terrain/bevy-0.20.0/images/spherical.webp)
+![Earth from the spherical example](https://raw.githubusercontent.com/mate-h/bevy_terrain/main/images/spherical.webp)
 
-![California terrain, hazy light](https://raw.githubusercontent.com/mate-h/bevy_terrain/bevy-0.20.0/images/atmosphere-haze.webp)
+![California terrain, hazy light](https://raw.githubusercontent.com/mate-h/bevy_terrain/main/images/atmosphere-haze.webp)
 
 ## Attribution
 

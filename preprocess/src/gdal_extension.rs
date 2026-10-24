@@ -16,7 +16,6 @@ use glam::U64Vec2;
 use itertools::Itertools;
 use std::{
     ffi::{CStr, CString, c_char, c_double, c_int, c_void},
-    os::unix::ffi::OsStrExt,
     path::Path,
     ptr, slice,
     sync::atomic::{AtomicU64, Ordering},
@@ -308,7 +307,9 @@ pub struct SharedReadOnlyDataset {
 impl SharedReadOnlyDataset {
     pub fn new(path: &Path) -> Self {
         Self {
-            path: CString::new(path.as_os_str().as_bytes()).unwrap(),
+            // GDAL treats filenames as UTF-8 when `GDAL_FILENAME_IS_UTF8` is YES, the default.
+            path: CString::new(path.to_str().expect("GDAL paths must be valid Unicode"))
+                .expect("GDAL paths must not contain interior nulls"),
             pool: ThreadLocal::new(),
         }
     }

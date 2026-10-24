@@ -6,9 +6,16 @@
 //!
 //! # Setup
 //!
-//! Preprocess a heightmap with the `bevy_terrain_preprocess` tool in this repository. It writes
-//! `assets/terrains/<name>/config.tc.ron` plus the tile files. That tool is not published with
-//! this crate.
+//! Tile a heightmap with `bevy_terrain_preprocess`. Install GDAL first
+//! ([macOS, Ubuntu, and Windows](https://github.com/mate-h/bevy_terrain/blob/main/preprocess/README.md#gdal)),
+//! then:
+//!
+//! ```sh
+//! cargo install --git https://github.com/mate-h/bevy_terrain bevy_terrain_preprocess
+//! ```
+//!
+//! The tool writes `<terrain>/config.tc.ron` and the tile files. Flags, including planar maps, are in
+//! the [preprocess README](https://github.com/mate-h/bevy_terrain/blob/main/preprocess/README.md).
 //!
 //! Then, in the app:
 //!
