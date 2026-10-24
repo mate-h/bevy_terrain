@@ -223,35 +223,45 @@ impl GpuTerrainShadow {
         pipeline_cache: Res<PipelineCache>,
         pipelines: Res<TerrainShadowPipelines>,
         buffers: Res<RenderAssets<GpuShaderBuffer>>,
+        gpu_terrains: Res<TerrainComponents<crate::render::GpuTerrain>>,
         uniforms: Res<TerrainViewComponents<TerrainShadowUniform>>,
         mut gpu_terrain_shadows: ResMut<TerrainViewComponents<GpuTerrainShadow>>,
     ) {
         for (&(terrain, view), gpu_terrain_shadow) in gpu_terrain_shadows.iter_mut() {
+            if gpu_terrain_shadow.view_bind_group.is_none()
+                && let (Some(terrain_view_buffer), Some(tile_tree_buffer)) = (
+                    buffers.get(&gpu_terrain_shadow.terrain_view_buffer),
+                    buffers.get(&gpu_terrain_shadow.tile_tree_buffer),
+                )
+            {
+                gpu_terrain_shadow.view_bind_group = Some(device.create_bind_group(
+                    "terrain_shadow_view_bind_group",
+                    &pipeline_cache.get_bind_group_layout(&pipelines.view_layout),
+                    &BindGroupEntries::sequential((
+                        terrain_view_buffer.buffer.as_entire_binding(),
+                        tile_tree_buffer.buffer.as_entire_binding(),
+                    )),
+                ));
+            }
+
+            // Shaders skip the map until `terrain_shadow_pass` can write it.
+            // Until then its texels are zero, which reads as a shadow at
+            // elevation 0.
+            let ready = gpu_terrain_shadow
+                .pipeline
+                .and_then(|id| pipeline_cache.get_compute_pipeline(id))
+                .is_some()
+                && gpu_terrain_shadow.view_bind_group.is_some()
+                && gpu_terrains
+                    .get(&terrain)
+                    .is_some_and(|gpu_terrain| gpu_terrain.terrain_bind_group.is_some());
+
             if let Some(uniform) = uniforms.get(&(terrain, view)) {
-                gpu_terrain_shadow.params_buffer.set_value(uniform.clone());
+                let mut uniform = uniform.clone();
+                uniform.enabled &= ready as u32;
+                gpu_terrain_shadow.params_buffer.set_value(uniform);
                 gpu_terrain_shadow.params_buffer.update(&queue);
             }
-
-            if gpu_terrain_shadow.view_bind_group.is_some() {
-                continue;
-            }
-
-            let (Some(terrain_view_buffer), Some(tile_tree_buffer)) = (
-                buffers.get(&gpu_terrain_shadow.terrain_view_buffer),
-                buffers.get(&gpu_terrain_shadow.tile_tree_buffer),
-            ) else {
-                gpu_terrain_shadow.view_bind_group = None;
-                continue;
-            };
-
-            gpu_terrain_shadow.view_bind_group = Some(device.create_bind_group(
-                "terrain_shadow_view_bind_group",
-                &pipeline_cache.get_bind_group_layout(&pipelines.view_layout),
-                &BindGroupEntries::sequential((
-                    terrain_view_buffer.buffer.as_entire_binding(),
-                    tile_tree_buffer.buffer.as_entire_binding(),
-                )),
-            ));
         }
     }
 

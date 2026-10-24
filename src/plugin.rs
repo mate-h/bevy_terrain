@@ -193,7 +193,7 @@ impl Plugin for TerrainPlugin {
                     (
                         GpuTileAtlas::prepare,
                         GpuTerrain::prepare,
-                        GpuTerrainShadow::prepare,
+                        GpuTerrainShadow::prepare.after(GpuTerrain::prepare),
                         GpuTerrainView::prepare_terrain_view,
                         GpuTerrainView::prepare_indirect,
                         GpuTerrainView::prepare_refine_tiles,

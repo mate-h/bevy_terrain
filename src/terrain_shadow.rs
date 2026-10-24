@@ -54,7 +54,7 @@ impl Default for TerrainShadowSettings {
 }
 
 /// GPU parameters of the terrain shadow map.
-/// Must match the `TerrainShadow` struct in `types.wgsl`.
+/// Must match the `TerrainShadow` struct in `types.wesl`.
 #[derive(Clone, Default, ShaderType)]
 pub struct TerrainShadowUniform {
     unit_from_world: Mat4,
@@ -81,11 +81,9 @@ pub(crate) fn update_terrain_shadow(
     settings: Res<TerrainShadowSettings>,
     tile_trees: Res<TerrainViewComponents<TileTree>>,
     tile_atlases: Query<&TileAtlas>,
-    lights: Query<&GlobalTransform, With<DirectionalLight>>,
+    lights: Query<(&DirectionalLight, &GlobalTransform)>,
     mut uniforms: ResMut<TerrainViewComponents<TerrainShadowUniform>>,
 ) {
-    let light = lights.iter().next();
-
     for (&(terrain, view), tile_tree) in tile_trees.iter() {
         let Ok(tile_atlas) = tile_atlases.get(terrain) else {
             continue;
@@ -181,6 +179,20 @@ pub(crate) fn update_terrain_shadow(
             0.0
         };
 
+        // March towards the brightest light above the map's horizon, else the
+        // brightest overall. A set sun can outshine the moon while it still
+        // lights the twilight sky, but it no longer lights the terrain.
+        let up_world = up.as_vec3();
+        let light_direction = lights
+            .iter()
+            .map(|(light, transform)| (transform.back().as_vec3(), light.illuminance))
+            .max_by(|(a, a_lux), (b, b_lux)| {
+                (a.dot(up_world) > 0.0)
+                    .cmp(&(b.dot(up_world) > 0.0))
+                    .then(a_lux.total_cmp(b_lux))
+            })
+            .map(|(direction, _)| direction);
+
         uniforms.insert(
             (terrain, view),
             TerrainShadowUniform {
@@ -191,14 +203,14 @@ pub(crate) fn update_terrain_shadow(
                 texel_size: texel_size as f32,
                 north: north.as_vec3(),
                 curvature,
-                up: up.as_vec3(),
+                up: up_world,
                 max_distance: settings.max_distance,
-                light_direction: light.map_or(Vec3::Y, |transform| transform.back().as_vec3()),
+                light_direction: light_direction.unwrap_or(Vec3::Y),
                 penumbra_scale: SUN_ANGULAR_RADIUS.tan() * settings.softness,
                 min_penumbra: settings.min_penumbra,
                 map_size: settings.map_size as f32,
                 steps: settings.steps,
-                enabled: (settings.enabled && light.is_some()) as u32,
+                enabled: (settings.enabled && light_direction.is_some()) as u32,
                 lod,
             },
         );
