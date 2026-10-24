@@ -1,6 +1,9 @@
 # bevy_terrain
 
-![California terrain in the atmosphere example](images/atmosphere.webp)
+[![crates.io](https://img.shields.io/crates/v/bevy_terrain)](https://crates.io/crates/bevy_terrain)
+[![docs.rs](https://docs.rs/bevy_terrain/badge.svg)](https://docs.rs/bevy_terrain)
+
+![California terrain in the atmosphere example](https://raw.githubusercontent.com/mate-h/bevy_terrain/bevy-0.20.0/images/atmosphere.webp)
 
 A Bevy plugin for large-scale planetary and planar terrain. It streams tiled height and attachment data, builds view-dependent geometry, and keeps GPU positions stable at planetary scale.
 
@@ -16,6 +19,20 @@ Based on [this master thesis](https://doi.org/10.60687/2025-0147). [Video](https
 - Optional [`big_space`](https://github.com/mate-h/big_space) floating origin
 - GDAL-based preprocess crate for GeoTIFF and planar heightmaps
 
+## Installation
+
+```toml
+bevy_terrain = "0.1"
+```
+
+Requires Bevy 0.20. The `big_space` feature is enabled by default. Disable default features if you do not need a floating origin:
+
+```toml
+bevy_terrain = { version = "0.1", default-features = false }
+```
+
+The GDAL preprocess tool lives in this repository (`preprocess/`) and is not published.
+
 ## Bevy version
 
 | Branch | Bevy |
@@ -25,7 +42,7 @@ Based on [this master thesis](https://doi.org/10.60687/2025-0147). [Video](https
 
 ## Examples
 
-Preprocess a GeoTIFF first (see [`preprocess/README.md`](preprocess/README.md)). Example datasets are [here](https://drive.proton.me/urls/ZRDAC9SWTM#IxwKkKWSBgnV). Put source rasters in `source_data` and write tiles under `assets/terrains/<name>/`.
+Preprocess a GeoTIFF first (see [`preprocess/README.md`](https://github.com/mate-h/bevy_terrain/blob/bevy-0.20.0/preprocess/README.md)). Example datasets are [here](https://drive.proton.me/urls/ZRDAC9SWTM#IxwKkKWSBgnV). Put source rasters in `source_data` and write tiles under `assets/terrains/<name>/`.
 
 ```bash
 # California + atmosphere (needs assets/terrains/california)
@@ -49,9 +66,9 @@ Atmosphere examples use Bevy's free camera (`WASD`, mouse). Mount Baker uses def
 
 ## Screenshots
 
-![Earth from the spherical example](images/spherical.webp)
+![Earth from the spherical example](https://raw.githubusercontent.com/mate-h/bevy_terrain/bevy-0.20.0/images/spherical.webp)
 
-![California terrain, hazy light](images/atmosphere-haze.webp)
+![California terrain, hazy light](https://raw.githubusercontent.com/mate-h/bevy_terrain/bevy-0.20.0/images/atmosphere-haze.webp)
 
 ## Attribution
 

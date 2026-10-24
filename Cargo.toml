@@ -1,15 +1,21 @@
 [package]
 name = "bevy_terrain"
-description = "Terrain Rendering for the Bevy Engine."
-version = "0.1.0-dev"
+description = "Streaming tiled heightfield terrain for Bevy, from planar worlds to planetary ellipsoids."
+version = "0.1.0"
 license = "MIT OR Apache-2.0"
 edition = "2024"
+rust-version = "1.97.1"
 categories = ["game-engines", "rendering", "graphics"]
-keywords = ["gamedev", "graphics", "bevy", "terrain"]
-exclude = ["assets/*"]
+keywords = ["gamedev", "graphics", "bevy", "terrain", "planet"]
+exclude = [".cargo", "captures", "source_data", "assets/terrains"]
 readme = "README.md"
-authors = ["Kurt Kühnert <kurt@kuehnert.dev>"]
+authors = [
+    "Kurt Kühnert <kurt@kuehnert.dev>",
+    "Máté Homolya <mate.homolya@gmail.com>",
+]
 repository = "https://github.com/mate-h/bevy_terrain"
+homepage = "https://github.com/mate-h/bevy_terrain"
+documentation = "https://docs.rs/bevy_terrain"
 
 [workspace]
 members = ["preprocess"]
@@ -27,6 +33,8 @@ atmosphere_example = ["bevy/free_camera", "bevy/https", "bevy/tonemapping_luts"]
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["3d", "free_camera"] }
+# crates.io rejects git dependencies. This follows mate-h/big_space until a
+# Bevy 0.20 release of big_space is published (0.14.0-rc.0 still requires 0.20.0-rc.2).
 big_space = { git = "https://github.com/mate-h/big_space", branch = "bevy-0.20.0", features = ["i32"], optional = true }
 tiff = "0.10"
 bytemuck = { version = "1.14", features = ["derive"] }

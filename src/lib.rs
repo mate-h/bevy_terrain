@@ -1,6 +1,9 @@
-//! This crate provides the ability to render beautiful height-field terrains of any size.
-//! This is achieved in extensible and modular manner, so that the terrain data
-//! can be accessed from nearly anywhere (systems, shaders) [^note].
+//! Streaming tiled heightfield terrain for [Bevy](https://bevy.org).
+//!
+//! The crate streams height and attachment data for spherical, WGS84 ellipsoid, and planar
+//! worlds, and builds view-dependent geometry that stays stable at planetary scale. Terrain
+//! data is available to systems and shaders. The default `big_space` feature adds a floating
+//! origin; custom [`Material`](bevy::prelude::Material)s can sample the same attachments.
 //!
 //! # Background
 //! There are three critical questions that each terrain renderer has to solve:
@@ -12,9 +15,9 @@
 //! attachments, can/should not be stored in RAM and VRAM all at once.
 //! Thus they have to be streamed in and out depending on the positions of the
 //! viewers (cameras, lights, etc.).
-//! Therefore the terrain is subdivided into a giant tile_tree, whose tiles store their
+//! Therefore the terrain is subdivided into a giant tile tree, whose tiles store their
 //! section of these attachments.
-//! This crate uses the chunked clipmap data structure, which consist of two pieces working together.
+//! This crate uses the chunked clipmap data structure, which consists of two pieces working together.
 //! The wrapping [`TileTree`](prelude::TileTree) views together with
 //! the [`TileAtlas`](prelude::TileAtlas) (the data structure
 //! that stores all of the currently loaded data) can be used to efficiently retrieve
@@ -23,7 +26,7 @@
 //!
 //! ## How to best approximate the terrain geometry?
 //! Even a small terrain with a height map of 1000x1000 pixels would require 1 million vertices
-//! to be rendered each frame per view, with an naive approach without an lod strategy.
+//! to be rendered each frame per view, with a naive approach without an lod strategy.
 //! To better distribute the vertices over the screen there exist many different algorithms.
 //! This crate comes with its own default terrain geometry algorithm, called the
 //! Uniform Distance-Dependent Level of Detail (UDLOD), which was developed with performance and
@@ -40,8 +43,6 @@
 //! In the future this plugin will provide modular shader functions to make techniques like splat
 //! mapping, triplane mapping, etc. easier.
 //! Additionally a virtual texturing solution might be integrated to achieve better performance.
-//!
-//! [^note]: Some of these claims are not yet fully implemented.
 
 pub mod debug;
 mod floating_origin;

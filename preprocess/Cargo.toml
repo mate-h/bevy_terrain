@@ -1,7 +1,11 @@
 [package]
 name = "bevy_terrain_preprocess"
+description = "GDAL preprocessor that writes bevy_terrain tile sets from GeoTIFFs and planar heightmaps."
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+repository = "https://github.com/mate-h/bevy_terrain"
 
 [dependencies]
 bevy_terrain = { path = ".." }
