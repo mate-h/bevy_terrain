@@ -29,8 +29,11 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<u32> {
     // No terrain here. The composite's depth test never copies these texels.
     if (depth == 0.0) { discard; }
 
-    var pbr_input = pbr_input_from_deferred_gbuffer(vec4<f32>(in.position.xy, depth, 1.0),
-                                                    textureLoad(terrain_gbuffer, pixel, 0));
+    let gbuffer = textureLoad(terrain_gbuffer, pixel, 0);
+    var pbr_input = pbr_input_from_deferred_gbuffer(vec4<f32>(in.position.xy, depth, 1.0), gbuffer);
+
+    // Unlit texels, such as debug views, already hold their final color.
+    if ((pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u) { return gbuffer; }
 
     pbr_input.directional_shadow_factor = pbr_input.diffuse_occlusion.x;
     pbr_input.diffuse_occlusion         = vec3<f32>(1.0);
