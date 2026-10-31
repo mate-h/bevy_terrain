@@ -7,7 +7,7 @@ import bevy_terrain::shaders::functions::{compute_coordinate, compute_world_coor
 import bevy_terrain::shaders::attachments::{sample_height_mask, sample_surface_gradient};
 import bevy_terrain::shaders::debug::{show_data_lod, show_geometry_lod, show_tile_tree, show_pixels};
 import bevy_pbr::render::mesh_view_bindings::view;
-import bevy_pbr::render::pbr_types::{PbrInput, pbr_input_new, STANDARD_MATERIAL_FLAGS_UNLIT_BIT};
+import bevy_pbr::render::pbr_types::{PbrInput, pbr_input_new};
 import bevy_pbr::render::pbr_functions::{calculate_view, apply_pbr_lighting};
 import bevy_pbr::render::mesh_types::MESH_FLAGS_SHADOW_RECEIVER_BIT;
 @if(DEFERRED_PREPASS) import bevy_pbr::deferred::functions::deferred_gbuffer_from_pbr_input;
@@ -85,12 +85,13 @@ fn fragment_output(info: ptr<function, FragmentInfo>, output: ptr<function, Frag
     @if((LIGHTING) && (TERRAIN_SHADOW))
     pbr_input.directional_shadow_factor = terrain_shadow_factor_at(world_position.xyz, terrain_shadow, shadow_map, shadow_map_sampler);
 
-    // Bevy's deferred lighting pass reconstructs `directional_shadow_factor`
-    // as 1.0. Shade here (same as forward) and mark the G-buffer unlit so
-    // that pass copies the already-shadowed color.
+    // Lighting runs later, once per pixel, in the terrain deferred lighting
+    // pass (`terrain_deferred_lighting.wesl`) rather than here for every
+    // rasterized fragment. Bevy's G-buffer has no slot for
+    // `directional_shadow_factor`, so it travels in the diffuse occlusion,
+    // which the terrain otherwise leaves at 1.0.
     @if((LIGHTING) && (DEFERRED_PREPASS)) {
-    pbr_input.material.base_color = apply_pbr_lighting(pbr_input);
-    pbr_input.material.flags = pbr_input.material.flags | STANDARD_MATERIAL_FLAGS_UNLIT_BIT;
+    pbr_input.diffuse_occlusion = vec3<f32>(pbr_input.directional_shadow_factor);
     (*output).deferred = deferred_gbuffer_from_pbr_input(pbr_input);
     }
     @if((LIGHTING) && (DEFERRED_PREPASS)) {

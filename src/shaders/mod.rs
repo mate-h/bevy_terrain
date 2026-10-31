@@ -25,6 +25,8 @@ pub(crate) const PICKING_SHADER: &str = "embedded://bevy_terrain/shaders/picking
 pub(crate) const DEPTH_COPY_SHADER: &str = "embedded://bevy_terrain/shaders/depth_copy.wesl";
 pub(crate) const DEFERRED_COMPOSITE_SHADER: &str =
     "embedded://bevy_terrain/shaders/deferred_composite.wesl";
+pub(crate) const TERRAIN_DEFERRED_LIGHTING_SHADER: &str =
+    "embedded://bevy_terrain/shaders/terrain_deferred_lighting.wesl";
 pub(crate) const TERRAIN_MOTION_SHADER: &str =
     "embedded://bevy_terrain/shaders/terrain_motion.wesl";
 pub(crate) const MIP_SHADER: &str = "embedded://bevy_terrain/shaders/mipmap.wesl";
@@ -86,6 +88,7 @@ pub(crate) fn load_terrain_shaders(app: &mut App, attachments: &[AttachmentLabel
     embedded_asset!(app, "picking.wesl");
     embedded_asset!(app, "depth_copy.wesl");
     embedded_asset!(app, "deferred_composite.wesl");
+    embedded_asset!(app, "terrain_deferred_lighting.wesl");
     embedded_asset!(app, "terrain_motion.wesl");
     embedded_asset!(app, "mipmap.wesl");
 
