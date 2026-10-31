@@ -9,10 +9,12 @@ use crate::{
     preprocess::{MipPipelines, mip_prepass},
     render::{
         DepthCopyPipeline, GpuTerrain, GpuTerrainShadow, GpuTerrainView,
-        TerrainDeferredCompositePipeline, TerrainItem, TerrainMotionPipeline,
+        TerrainDeferredCompositePipeline, TerrainDeferredLightingPipeline,
+        TerrainDeferredLightingPipelines, TerrainItem, TerrainMotionPipeline,
         TerrainShadowPipelines, TerrainTilingPrepassPipelines, TerrainUniform, TilingPrepassItem,
-        extract_terrain_phases, extract_terrain_uniform, prepare_terrain_composite_bind_groups,
-        prepare_terrain_depth_textures, prepare_terrain_motion_bind_groups, queue_tiling_prepass,
+        extract_terrain_phases, extract_terrain_uniform, init_terrain_deferred_lighting_pipeline,
+        prepare_terrain_composite_bind_groups, prepare_terrain_depth_textures,
+        prepare_terrain_motion_bind_groups, queue_terrain_deferred_lighting, queue_tiling_prepass,
         terrain_deferred_pass, terrain_motion_pass, terrain_pass, terrain_shadow_pass,
         tiling_prepass,
     },
@@ -37,8 +39,9 @@ use bevy::{
         schedule::{Core3d, Core3dSystems, camera_driver},
     },
     prelude::*,
+    pbr::MeshPipelineSystems,
     render::{
-        Extract, Render, RenderApp, RenderSystems,
+        Extract, Render, RenderApp, RenderStartup, RenderSystems,
         render_phase::{DrawFunctions, ViewSortedRenderPhases, sort_phase_system},
         render_resource::*,
         renderer::RenderGraph,
@@ -193,6 +196,10 @@ impl Plugin for TerrainPlugin {
             .init_resource::<DrawFunctions<TerrainItem>>()
             .init_resource::<ViewSortedRenderPhases<TerrainItem>>()
             .add_systems(
+                RenderStartup,
+                init_terrain_deferred_lighting_pipeline.after(MeshPipelineSystems),
+            )
+            .add_systems(
                 ExtractSchedule,
                 (
                     extract_terrain_phases,
@@ -230,6 +237,7 @@ impl Plugin for TerrainPlugin {
                         queue_tiling_prepass,
                         GpuTileAtlas::queue,
                         GpuTerrainShadow::queue,
+                        queue_terrain_deferred_lighting,
                     )
                         .in_set(RenderSystems::Queue),
                     GpuTileAtlas::_cleanup.in_set(RenderSystems::Cleanup),
@@ -284,6 +292,8 @@ impl Plugin for TerrainPlugin {
             .init_resource::<DepthCopyPipeline>()
             .init_resource::<SpecializedRenderPipelines<DepthCopyPipeline>>()
             .init_resource::<TerrainDeferredCompositePipeline>()
+            .init_resource::<SpecializedRenderPipelines<TerrainDeferredLightingPipeline>>()
+            .init_resource::<TerrainDeferredLightingPipelines>()
             .init_resource::<TerrainMotionPipeline>();
     }
 }

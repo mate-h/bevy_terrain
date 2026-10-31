@@ -4,6 +4,7 @@
 //! the result with one indirect call. The type to add to an app is [`TerrainMaterialPlugin`].
 
 mod terrain_bind_group;
+mod terrain_lighting;
 mod terrain_material;
 mod terrain_pass;
 mod terrain_shadow;
@@ -18,6 +19,6 @@ pub use self::{
 };
 
 pub(crate) use self::{
-    terrain_bind_group::*, terrain_pass::*, terrain_shadow::*, terrain_view_bind_group::*,
-    tiling_prepass::*,
+    terrain_bind_group::*, terrain_lighting::*, terrain_pass::*, terrain_shadow::*,
+    terrain_view_bind_group::*, tiling_prepass::*,
 };
