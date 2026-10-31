@@ -4,20 +4,30 @@
 //! raymarching the terrain height map towards the sun. Each texel stores the
 //! elevation below which the terrain is occluded (R) and the ray length to the
 //! occluder (G), which widens the penumbra for cheap soft shadows.
+//!
+//! The raymarch only reruns when its result can change: when the map moves, the
+//! settings change, the sun turns past [`TerrainShadowSettings::light_update_threshold`],
+//! or a tile at or coarser than the sampled lod enters or leaves the atlas.
 
 use crate::{
     math::Coordinate,
-    terrain_data::{AttachmentLabel, TileAtlas, TileTree},
+    terrain_data::{AttachmentLabel, TerrainTileDropped, TerrainTileReady, TileAtlas, TileTree},
     terrain_view::TerrainViewComponents,
 };
 use bevy::{
     math::{DMat4, DVec3, DVec4},
+    platform::collections::HashMap,
     prelude::*,
     render::{Extract, render_resource::ShaderType},
 };
 
 /// The angular radius of the sun as seen from earth, in radians (~0.265 degrees).
 const SUN_ANGULAR_RADIUS: f32 = 0.004625;
+
+/// Frames to keep regenerating the map after a tile enters or leaves the atlas.
+/// The tile tree buffer follows on the same frame, but the atlas texture upload
+/// lags one render frame behind.
+const TILE_CHANGE_REFRESH_FRAMES: u32 = 3;
 
 /// Raymarched heightfield shadow. Off until `enabled` is set.
 ///
@@ -40,6 +50,9 @@ pub struct TerrainShadowSettings {
     /// The minimum penumbra width, in meters. Hides the quantization of the
     /// 16-bit shadow map at hard shadow edges.
     pub min_penumbra: f32,
+    /// The angle, in radians, the light has to turn before the map is regenerated.
+    /// Smaller sun movements reuse the previous map.
+    pub light_update_threshold: f32,
 }
 
 impl Default for TerrainShadowSettings {
@@ -52,13 +65,15 @@ impl Default for TerrainShadowSettings {
             steps: 96,
             softness: 1.0,
             min_penumbra: 10.0,
+            // ~0.02 degrees, well below the sun's angular radius.
+            light_update_threshold: 0.00035,
         }
     }
 }
 
 /// GPU parameters of the terrain shadow map.
 /// Must match the `TerrainShadow` struct in `types.wesl`.
-#[derive(Clone, Default, ShaderType)]
+#[derive(Clone, Default, PartialEq, ShaderType)]
 pub struct TerrainShadowUniform {
     unit_from_world: Mat4,
     center: Vec3,
@@ -78,6 +93,15 @@ pub struct TerrainShadowUniform {
     lod: u32,
 }
 
+/// Tracks whether the shadow map of a (terrain, view) has to be regenerated.
+#[derive(Clone, Default)]
+pub(crate) struct TerrainShadowRefresh {
+    /// The uniform of the last regeneration request.
+    last: TerrainShadowUniform,
+    /// The number of upcoming frames (including this one) that regenerate the map.
+    pub(crate) frames: u32,
+}
+
 /// Computes the per-(terrain, view) shadow map parameters: the tangent frame of the
 /// map region (snapped to the texel grid to avoid shimmer) and the sun direction.
 pub(crate) fn update_terrain_shadow(
@@ -86,7 +110,30 @@ pub(crate) fn update_terrain_shadow(
     tile_atlases: Query<&TileAtlas>,
     lights: Query<(&DirectionalLight, &GlobalTransform)>,
     mut uniforms: ResMut<TerrainViewComponents<TerrainShadowUniform>>,
+    mut refreshes: ResMut<TerrainViewComponents<TerrainShadowRefresh>>,
+    mut tile_ready: MessageReader<TerrainTileReady>,
+    mut tile_dropped: MessageReader<TerrainTileDropped>,
 ) {
+    refreshes.retain(|key, _| tile_trees.contains_key(key));
+
+    // Coarsest changed tile lod per terrain. Finer tiles never affect the map,
+    // since the raymarch samples a fixed lod.
+    let mut changed_lods = HashMap::<Entity, u32>::new();
+    for (terrain, lod) in tile_ready
+        .read()
+        .map(|message| (message.terrain, message.coordinate.lod))
+        .chain(
+            tile_dropped
+                .read()
+                .map(|message| (message.terrain, message.coordinate.lod)),
+        )
+    {
+        changed_lods
+            .entry(terrain)
+            .and_modify(|min| *min = (*min).min(lod))
+            .or_insert(lod);
+    }
+
     for (&(terrain, view), tile_tree) in tile_trees.iter() {
         let Ok(tile_atlas) = tile_atlases.get(terrain) else {
             continue;
@@ -196,39 +243,69 @@ pub(crate) fn update_terrain_shadow(
             })
             .map(|(direction, _)| direction);
 
-        uniforms.insert(
-            (terrain, view),
-            TerrainShadowUniform {
-                unit_from_world,
-                center: center_world,
-                extent: settings.extent,
-                east: east.as_vec3(),
-                texel_size: texel_size as f32,
-                north: north.as_vec3(),
-                curvature,
-                up: up_world,
-                max_distance: settings.max_distance,
-                light_direction: light_direction.unwrap_or(Vec3::Y),
-                penumbra_scale: SUN_ANGULAR_RADIUS.tan() * settings.softness,
-                min_penumbra: settings.min_penumbra,
-                map_size: settings.map_size as f32,
-                steps: settings.steps,
-                enabled: (settings.enabled && light_direction.is_some()) as u32,
-                lod,
-            },
-        );
+        let uniform = TerrainShadowUniform {
+            unit_from_world,
+            center: center_world,
+            extent: settings.extent,
+            east: east.as_vec3(),
+            texel_size: texel_size as f32,
+            north: north.as_vec3(),
+            curvature,
+            up: up_world,
+            max_distance: settings.max_distance,
+            light_direction: light_direction.unwrap_or(Vec3::Y),
+            penumbra_scale: SUN_ANGULAR_RADIUS.tan() * settings.softness,
+            min_penumbra: settings.min_penumbra,
+            map_size: settings.map_size as f32,
+            steps: settings.steps,
+            enabled: (settings.enabled && light_direction.is_some()) as u32,
+            lod,
+        };
+
+        // A new entry differs from any real uniform, so the first frame regenerates.
+        let refresh = refreshes.entry((terrain, view)).or_default();
+        refresh.frames = refresh.frames.saturating_sub(1);
+
+        if changed_lods
+            .get(&terrain)
+            .is_some_and(|&changed| changed <= lod)
+        {
+            refresh.frames = TILE_CHANGE_REFRESH_FRAMES;
+        }
+
+        // The cross product resolves small angles that the dot product loses to f32
+        // rounding near 1.
+        let (light, last_light) = (uniform.light_direction, refresh.last.light_direction);
+        let light_moved = light.dot(last_light) <= 0.0
+            || light.cross(last_light).length() > settings.light_update_threshold.sin();
+        let frame_changed = TerrainShadowUniform {
+            light_direction: refresh.last.light_direction,
+            ..uniform.clone()
+        } != refresh.last;
+
+        if light_moved || frame_changed {
+            refresh.frames = refresh.frames.max(1);
+            refresh.last = uniform.clone();
+        }
+
+        uniforms.insert((terrain, view), uniform);
     }
 }
 
 pub(crate) fn extract_terrain_shadow(
     mut settings: ResMut<TerrainShadowSettings>,
     mut uniforms: ResMut<TerrainViewComponents<TerrainShadowUniform>>,
+    mut refreshes: ResMut<TerrainViewComponents<TerrainShadowRefresh>>,
     main_settings: Extract<Res<TerrainShadowSettings>>,
     main_uniforms: Extract<Res<TerrainViewComponents<TerrainShadowUniform>>>,
+    main_refreshes: Extract<Res<TerrainViewComponents<TerrainShadowRefresh>>>,
 ) {
     *settings = main_settings.clone();
 
     for (&key, uniform) in main_uniforms.iter() {
         uniforms.insert(key, uniform.clone());
+    }
+    for (&key, refresh) in main_refreshes.iter() {
+        refreshes.insert(key, refresh.clone());
     }
 }

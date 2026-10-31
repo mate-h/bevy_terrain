@@ -1,20 +1,9 @@
 
-import bevy_terrain::shaders::types::{Coordinate, Blend, INVALID_ATLAS_INDEX};
-import bevy_terrain::shaders::bindings::terrain_data;
-import bevy_terrain::shaders::attachments::{sample_height, sample_height_mask};
-import bevy_terrain::shaders::functions::lookup_tile;
+import bevy_terrain::shaders::types::{Coordinate, INVALID_ATLAS_INDEX};
+import bevy_terrain::shaders::bindings::{terrain_data, terrain_sampler, height_attachment};
+import bevy_terrain::shaders::functions::lookup_tile_tree_entry;
 
 const HEIGHTFIELD_SIGMA: f32 = 0.87 * 0.87;
-
-// Transforms a world position into terrain unit space (the unit cube sphere for
-// spherical terrains, or the unit plane for planar ones).
-fn world_to_unit_position(world_position: vec3<f32>, unit_from_world: mat4x4<f32>) -> vec3<f32> {
-    let unit = (unit_from_world * vec4<f32>(world_position, 1.0)).xyz;
-    @if(SPHERICAL)
-    return normalize(unit);
-    @if(!(SPHERICAL))
-    return unit;
-}
 
 // Inverse of the cube-sphere projection in `Coordinate::from_unit_position`.
 fn unit_to_coordinate(unit: vec3<f32>) -> Coordinate {
@@ -66,16 +55,52 @@ fn unit_to_coordinate(unit: vec3<f32>) -> Coordinate {
 // enough that the (viewer-centered) tile tree window at that lod covers every sampled
 // position; otherwise the wrapping tree lookup would return unrelated tiles.
 fn sample_height_at_world(world_position: vec3<f32>, unit_from_world: mat4x4<f32>, lod: u32) -> f32 {
-    let unit       = world_to_unit_position(world_position, unit_from_world);
-    let coordinate = unit_to_coordinate(unit);
-    let tile       = lookup_tile(coordinate, Blend(lod, 0.0));
+    return sample_height_at_unit((unit_from_world * vec4<f32>(world_position, 1.0)).xyz, lod);
+}
 
-    // Outside the dataset (no tile at any lod, or masked-out texels of an edge
-    // tile) there is no terrain: report the lowest height instead of sampling
-    // garbage, so the void never casts shadows.
-    if (tile.index == INVALID_ATLAS_INDEX || sample_height_mask(tile)) {
+// Like `sample_height_at_world`, for a position already transformed into terrain unit
+// space by `unit_from_world` (for spherical terrains, not yet projected onto the unit
+// cube sphere).
+fn sample_height_at_unit(unit_position: vec3<f32>, lod: u32) -> f32 {
+    @if(SPHERICAL)
+    let unit = normalize(unit_position);
+    @if(!(SPHERICAL))
+    let unit = unit_position;
+
+    let coordinate = unit_to_coordinate(unit);
+
+    // The coordinate is at lod 0, where uv spans the whole face, so the tile tree
+    // entry and the atlas uv follow from scaling uv by a power of two. This is
+    // equivalent to (and much cheaper than) the general `lookup_tile`.
+    let tree_xy = vec2<u32>(coordinate.uv * f32(1u << lod));
+    let entry   = lookup_tile_tree_entry(Coordinate(coordinate.face, lod, tree_xy, vec2<f32>(0.0)));
+
+    // Outside the dataset (no tile at any lod) there is no terrain: report the
+    // lowest height instead of sampling garbage, so the void never casts shadows.
+    if (entry.atlas_index == INVALID_ATLAS_INDEX) { return terrain_data.terrain.min_height; }
+
+    let tile_uv = fract(coordinate.uv * f32(1u << entry.atlas_lod));
+
+    return sample_height_gathered(entry.atlas_index, tile_uv);
+}
+
+// Bilinear height at `tile_uv` of an atlas tile from a single gather, which also
+// serves the mask test (the low bit of each raw texel), instead of a gather plus a
+// filtered sample. Masked-out texels (outside the dataset at the edge of a tile)
+// report the lowest height.
+fn sample_height_gathered(atlas_index: u32, tile_uv: vec2<f32>) -> f32 {
+    let attachment = terrain_data.attachments.height;
+    let uv         = tile_uv * attachment.scale + attachment.offset;
+    let texels     = textureGather(0, height_attachment, terrain_sampler, uv, atlas_index);
+
+    if (attachment.mask != 0 && any((bitcast<vec4<u32>>(texels) & vec4<u32>(1)) == vec4<u32>(0))) {
         return terrain_data.terrain.min_height;
     }
 
-    return sample_height(tile);
+    // Gather order: (u0, v1), (u1, v1), (u1, v0), (u0, v0).
+    let weight = fract(uv * vec2<f32>(textureDimensions(height_attachment)) - 0.5);
+    let top    = mix(texels.w, texels.z, weight.x);
+    let bottom = mix(texels.x, texels.y, weight.x);
+
+    return terrain_data.terrain.height_scale * mix(top, bottom, weight.y);
 }

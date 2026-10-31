@@ -3,7 +3,7 @@ use crate::{
     shaders::SHADOW_MAP_SHADER,
     terrain::TerrainComponents,
     terrain_data::{GpuTileAtlas, TileTree},
-    terrain_shadow::{TerrainShadowSettings, TerrainShadowUniform},
+    terrain_shadow::{TerrainShadowRefresh, TerrainShadowSettings, TerrainShadowUniform},
     terrain_view::TerrainViewComponents,
     util::GpuBuffer,
 };
@@ -123,6 +123,10 @@ pub struct GpuTerrainShadow {
     pub(crate) sampler: Sampler,
     pub(crate) params_buffer: GpuBuffer<TerrainShadowUniform>,
     pub(crate) pipeline: Option<CachedComputePipelineId>,
+    /// A regeneration was requested but has not run yet.
+    pending: bool,
+    /// `terrain_shadow_pass` regenerates the map this frame.
+    dispatch: bool,
     params_bind_group: BindGroup,
     view_bind_group: Option<BindGroup>,
     output_bind_group: BindGroup,
@@ -205,6 +209,8 @@ impl GpuTerrainShadow {
             sampler,
             params_buffer,
             pipeline: None,
+            pending: true,
+            dispatch: false,
             params_bind_group,
             view_bind_group: None,
             output_bind_group,
@@ -240,7 +246,9 @@ impl GpuTerrainShadow {
         pipelines: Res<TerrainShadowPipelines>,
         buffers: Res<RenderAssets<GpuShaderBuffer>>,
         gpu_terrains: Res<TerrainComponents<crate::render::GpuTerrain>>,
+        settings: Res<TerrainShadowSettings>,
         uniforms: Res<TerrainViewComponents<TerrainShadowUniform>>,
+        refreshes: Res<TerrainViewComponents<TerrainShadowRefresh>>,
         mut gpu_terrain_shadows: ResMut<TerrainViewComponents<GpuTerrainShadow>>,
     ) {
         for (&(terrain, view), gpu_terrain_shadow) in gpu_terrain_shadows.iter_mut() {
@@ -271,6 +279,13 @@ impl GpuTerrainShadow {
                 && gpu_terrains
                     .get(&terrain)
                     .is_some_and(|gpu_terrain| gpu_terrain.terrain_bind_group.is_some());
+
+            // Keep a request pending until the pass can actually run it.
+            gpu_terrain_shadow.pending |= refreshes
+                .get(&(terrain, view))
+                .is_some_and(|refresh| refresh.frames > 0);
+            gpu_terrain_shadow.dispatch = gpu_terrain_shadow.pending && ready && settings.enabled;
+            gpu_terrain_shadow.pending &= !gpu_terrain_shadow.dispatch;
 
             if let Some(uniform) = uniforms.get(&(terrain, view)) {
                 let mut uniform = uniform.clone();
@@ -319,6 +334,9 @@ pub fn terrain_shadow_pass(
         });
 
     for (&(terrain, _view), gpu_terrain_shadow) in gpu_terrain_shadows.iter() {
+        if !gpu_terrain_shadow.dispatch {
+            continue;
+        }
         let Some(pipeline) = gpu_terrain_shadow
             .pipeline
             .and_then(|id| pipeline_cache.get_compute_pipeline(id))

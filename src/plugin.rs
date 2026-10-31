@@ -23,7 +23,8 @@ use crate::{
         TileAtlas, TileTree, finish_loading, start_loading,
     },
     terrain_shadow::{
-        TerrainShadowSettings, TerrainShadowUniform, extract_terrain_shadow, update_terrain_shadow,
+        TerrainShadowRefresh, TerrainShadowSettings, TerrainShadowUniform, extract_terrain_shadow,
+        update_terrain_shadow,
     },
     terrain_view::TerrainViewComponents,
 };
@@ -119,6 +120,7 @@ fn cleanup_despawned_gpu_terrains(
     mut gpu_terrain_views: ResMut<TerrainViewComponents<GpuTerrainView>>,
     mut gpu_terrain_shadows: ResMut<TerrainViewComponents<GpuTerrainShadow>>,
     mut shadow_uniforms: ResMut<TerrainViewComponents<TerrainShadowUniform>>,
+    mut shadow_refreshes: ResMut<TerrainViewComponents<TerrainShadowRefresh>>,
     mut tiling_prepass_items: ResMut<TerrainViewComponents<TilingPrepassItem>>,
     terrains: Extract<Query<Entity, With<TileAtlas>>>,
 ) {
@@ -129,6 +131,7 @@ fn cleanup_despawned_gpu_terrains(
     gpu_terrain_views.retain(|(terrain, _view), _| live.contains(terrain));
     gpu_terrain_shadows.retain(|(terrain, _view), _| live.contains(terrain));
     shadow_uniforms.retain(|(terrain, _view), _| live.contains(terrain));
+    shadow_refreshes.retain(|(terrain, _view), _| live.contains(terrain));
     tiling_prepass_items.retain(|(terrain, _view), _| live.contains(terrain));
 }
 
@@ -147,6 +150,7 @@ impl Plugin for TerrainPlugin {
             .init_resource::<TerrainSettings>()
             .init_resource::<TerrainShadowSettings>()
             .init_resource::<TerrainViewComponents<TerrainShadowUniform>>()
+            .init_resource::<TerrainViewComponents<TerrainShadowRefresh>>()
             .init_asset_loader::<TerrainConfigLoader>()
             .init_asset_loader::<TiffLoader>()
             .add_message::<TerrainTileReady>()
@@ -185,6 +189,7 @@ impl Plugin for TerrainPlugin {
             .init_resource::<TerrainViewComponents<TilingPrepassItem>>()
             .init_resource::<TerrainShadowSettings>()
             .init_resource::<TerrainViewComponents<TerrainShadowUniform>>()
+            .init_resource::<TerrainViewComponents<TerrainShadowRefresh>>()
             .init_resource::<DrawFunctions<TerrainItem>>()
             .init_resource::<ViewSortedRenderPhases<TerrainItem>>()
             .add_systems(
