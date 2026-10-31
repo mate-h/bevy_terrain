@@ -4,8 +4,8 @@
 // fraction of `max_distance` (G), are stored. At shading time fragments compare
 // their elevation against R and use G to widen the penumbra for cheap soft shadows.
 
-import bevy_terrain::shaders::bindings::{terrain_shadow, shadow_map_out};
-import bevy_terrain::shaders::heightfield::sample_height_at_world;
+import bevy_terrain::shaders::bindings::{terrain_data, terrain_shadow, shadow_map_out};
+import bevy_terrain::shaders::heightfield::sample_height_at_unit;
 
 // Elevation sentinel meaning "no occluder" (well below any terrain, fits rg16float).
 const NO_OCCLUDER: f32 = -60000.0;
@@ -35,35 +35,49 @@ fn compute_shadow_map(@builtin(global_invocation_id) invocation: vec3<u32>) {
         let direction = vec2<f32>(dot(horizon, terrain_shadow.east),
                                   dot(horizon, terrain_shadow.north)) / horizon_length;
 
-        // Exponentially growing steps out to the max scan distance. Start beyond the
-        // texel's own cell, so the coarse height there cannot self-shadow fragments
-        // that sit below the cell average (close-range shadows are handled by the
-        // regular shadow maps).
-        let start  = 1.5 * terrain_shadow.texel_size;
-        let count  = terrain_shadow.steps;
-        let growth = pow(terrain_shadow.max_distance / start, 1.0 / f32(count - 1u));
+        // Exponentially growing steps out to the max scan distance, but never shorter
+        // than a texel: closer samples would only resolve detail the map cannot hold.
+        // Start beyond the texel's own cell, so the coarse height there cannot
+        // self-shadow fragments that sit below the cell average (close-range shadows
+        // are handled by the regular shadow maps).
+        let texel_size = terrain_shadow.texel_size;
+        let start      = 1.5 * texel_size;
+        let count      = terrain_shadow.steps;
+        let growth     = pow(terrain_shadow.max_distance / start, 1.0 / f32(count - 1u));
+
+        let max_height = terrain_data.terrain.max_height;
+
+        // The ray is a straight line in world space, so its unit space position is
+        // affine in t and the transform can be hoisted out of the loop.
+        let unit_from_world = terrain_shadow.unit_from_world;
+        let origin_world    = terrain_shadow.center
+            + origin.x * terrain_shadow.east + origin.y * terrain_shadow.north;
+        let direction_world = direction.x * terrain_shadow.east + direction.y * terrain_shadow.north;
+        let unit_origin     = (unit_from_world * vec4<f32>(origin_world, 1.0)).xyz;
+        let unit_direction  = (unit_from_world * vec4<f32>(direction_world, 0.0)).xyz;
 
         var t = start;
-        for (var i = 0u; i < count; i = i + 1u) {
-            let sample_xy = origin + t * direction;
-            let world_position = terrain_shadow.center
-                + sample_xy.x * terrain_shadow.east
-                + sample_xy.y * terrain_shadow.north;
+        for (var i = 0u; i < count && t <= terrain_shadow.max_distance; i = i + 1u) {
+            // Elevation the occluder at distance t has to exceed to shadow this texel:
+            // the spherical curvature drop plus the elevation the sun ray gains while
+            // traveling the horizontal distance t.
+            let drop = t * t * terrain_shadow.curvature + t * slope;
 
-            let height = sample_height_at_world(world_position, terrain_shadow.unit_from_world,
-                                                terrain_shadow.lod);
+            // The occlusion height of any remaining sample is at most the highest
+            // terrain minus the drop, which only grows with t when the sun is above
+            // the horizon. Once that bound cannot beat the current occluder, the
+            // result is final.
+            if (slope >= 0.0 && max_height - drop <= intersection_height) { break; }
 
-            // Elevation below which a point at this texel is occluded by the sample:
-            // terrain height, minus the spherical curvature drop, minus the elevation
-            // the sun ray gains while traveling the horizontal distance t.
-            let occlusion_height = height - t * t * terrain_shadow.curvature - t * slope;
+            let height = sample_height_at_unit(unit_origin + t * unit_direction, terrain_shadow.lod);
+            let occlusion_height = height - drop;
 
             if (occlusion_height > intersection_height) {
                 intersection_height = occlusion_height;
                 ray_length          = t;
             }
 
-            t = t * growth;
+            t = max(t * growth, t + texel_size);
         }
     } else if (sun_up < 0.0) {
         // Sun pointing straight down: everything is occluded.
