@@ -773,10 +773,10 @@ pub fn terrain_deferred_pass(
     let Some(pipeline) = pipeline_cache.get_render_pipeline(composite_pipeline.id) else {
         return;
     };
-    let Some(lighting_pipeline) = lighting_pipelines
-        .get(&view_entity)
-        .and_then(|id| pipeline_cache.get_render_pipeline(*id))
-    else {
+    let Some(lighting) = lighting_pipelines.get(&view_entity) else {
+        return;
+    };
+    let Some(lighting_pipeline) = pipeline_cache.get_render_pipeline(lighting.pipeline) else {
         return;
     };
 
@@ -851,6 +851,9 @@ pub fn terrain_deferred_pass(
         );
         pass.set_bind_group(1, &mesh_view_bind_group.binding_array, &[]);
         pass.set_bind_group(2, &composite_bind_group.lighting_bind_group, &[]);
+        if let Some(shadow_bind_group) = &lighting.shadow_bind_group {
+            pass.set_bind_group(3, shadow_bind_group, &[]);
+        }
         pass.set_render_pipeline(lighting_pipeline);
         pass.draw(0..3, 0..1);
     }

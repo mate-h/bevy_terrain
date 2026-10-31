@@ -3,6 +3,7 @@ use crate::{
     render::{
         DrawTerrainCommand, GpuTerrainView, SetTerrainBindGroup, SetTerrainViewBindGroup,
         TERRAIN_DEPTH_FORMAT, TerrainItem, TerrainTilingPrepassPipelines, deferred_gbuffer_targets,
+        lighting_pass_shadow_terrain,
     },
     shaders::{DEFAULT_FRAGMENT_SHADER, DEFAULT_VERTEX_SHADER},
     spawn::{TerrainsToSpawn, spawn_terrains},
@@ -525,7 +526,16 @@ pub(crate) fn queue_terrain<M: Material>(
             if has_environment_maps {
                 flags |= TerrainPipelineFlags::ENVIRONMENT_MAP;
             }
-            if shadow_settings.enabled {
+            let deferred = terrain_renders_deferred(
+                has_deferred_prepass,
+                default_opaque_renderer_method.as_deref(),
+            );
+            // On a deferred view with one terrain, the lighting pass applies the terrain shadow.
+            if shadow_settings.enabled
+                && !(deferred
+                    && lighting_pass_shadow_terrain(&shadow_settings, &gpu_terrain_views, view)
+                        == Some(terrain))
+            {
                 flags |= TerrainPipelineFlags::TERRAIN_SHADOW;
             }
 
@@ -546,10 +556,7 @@ pub(crate) fn queue_terrain<M: Material>(
             // it: the G-buffer `FragmentOutput` has no color slot for the
             // unlit path, and the packed PbrInput comes from the shared
             // LIGHTING assembly.
-            if terrain_renders_deferred(
-                has_deferred_prepass,
-                default_opaque_renderer_method.as_deref(),
-            ) {
+            if deferred {
                 flags |= TerrainPipelineFlags::DEFERRED | TerrainPipelineFlags::LIGHTING;
             }
 

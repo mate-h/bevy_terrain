@@ -2,6 +2,8 @@ import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 import bevy_pbr::render::pbr_types::STANDARD_MATERIAL_FLAGS_UNLIT_BIT;
 import bevy_pbr::render::pbr_functions::apply_pbr_lighting;
 import bevy_pbr::deferred::functions::{deferred_gbuffer_from_pbr_input, pbr_input_from_deferred_gbuffer};
+@if(TERRAIN_SHADOW) import bevy_terrain::shaders::types::TerrainShadow;
+@if(TERRAIN_SHADOW) import bevy_terrain::shaders::terrain_shadow::terrain_shadow_factor_at;
 
 // Shades the terrain's private G-buffer once per pixel. The terrain draw only
 // writes material inputs, so overdraw (and the mask `discard`, which defeats
@@ -10,8 +12,10 @@ import bevy_pbr::deferred::functions::{deferred_gbuffer_from_pbr_input, pbr_inpu
 // into Bevy's deferred attachments and Bevy's deferred lighting pass copies.
 //
 // Bevy's deferred lighting can't shade the terrain itself: it has no
-// `directional_shadow_factor` for the terrain shadow map. The terrain draw
-// passes that factor in the diffuse occlusion instead.
+// `directional_shadow_factor` for the terrain shadow map. With `TERRAIN_SHADOW`,
+// this pass looks up the shadow map at the pixel's depth-reconstructed
+// position. Otherwise the terrain draw passes the factor in the diffuse
+// occlusion, which happens when several terrains share the view.
 //
 // Groups 0 and 1 are Bevy's mesh-view bind groups. They contain the
 // current-frame deferred texture, which is why this pass writes another
@@ -20,6 +24,10 @@ import bevy_pbr::deferred::functions::{deferred_gbuffer_from_pbr_input, pbr_inpu
 var terrain_gbuffer: texture_2d<u32>;
 @group(2) @binding(1)
 var terrain_depth: texture_depth_2d;
+
+@if(TERRAIN_SHADOW) @group(3) @binding(0) var shadow_map: texture_2d<f32>;
+@if(TERRAIN_SHADOW) @group(3) @binding(1) var shadow_map_sampler: sampler;
+@if(TERRAIN_SHADOW) @group(3) @binding(2) var<uniform> terrain_shadow: TerrainShadow;
 
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<u32> {
@@ -36,6 +44,8 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<u32> {
     if ((pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) != 0u) { return gbuffer; }
 
     pbr_input.directional_shadow_factor = pbr_input.diffuse_occlusion.x;
+    @if(TERRAIN_SHADOW)
+    pbr_input.directional_shadow_factor *= terrain_shadow_factor_at(pbr_input.world_position.xyz, terrain_shadow, shadow_map, shadow_map_sampler);
     pbr_input.diffuse_occlusion         = vec3<f32>(1.0);
 
     pbr_input.material.base_color = apply_pbr_lighting(pbr_input);
