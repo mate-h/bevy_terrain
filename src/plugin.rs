@@ -9,10 +9,12 @@ use crate::{
     preprocess::{MipPipelines, mip_prepass},
     render::{
         DepthCopyPipeline, GpuTerrain, GpuTerrainShadow, GpuTerrainView,
-        TerrainDeferredCompositePipeline, TerrainItem, TerrainMotionPipeline,
+        TerrainDeferredCompositePipeline, TerrainDeferredLightingPipeline,
+        TerrainDeferredLightingPipelines, TerrainItem, TerrainMotionPipeline,
         TerrainShadowPipelines, TerrainTilingPrepassPipelines, TerrainUniform, TilingPrepassItem,
-        extract_terrain_phases, extract_terrain_uniform, prepare_terrain_composite_bind_groups,
-        prepare_terrain_depth_textures, prepare_terrain_motion_bind_groups, queue_tiling_prepass,
+        extract_terrain_phases, extract_terrain_uniform, init_terrain_deferred_lighting_pipeline,
+        prepare_terrain_composite_bind_groups, prepare_terrain_depth_textures,
+        prepare_terrain_motion_bind_groups, queue_terrain_deferred_lighting, queue_tiling_prepass,
         terrain_deferred_pass, terrain_motion_pass, terrain_pass, terrain_shadow_pass,
         tiling_prepass,
     },
@@ -23,7 +25,8 @@ use crate::{
         TileAtlas, TileTree, finish_loading, start_loading,
     },
     terrain_shadow::{
-        TerrainShadowSettings, TerrainShadowUniform, extract_terrain_shadow, update_terrain_shadow,
+        TerrainShadowRefresh, TerrainShadowSettings, TerrainShadowUniform, extract_terrain_shadow,
+        update_terrain_shadow,
     },
     terrain_view::TerrainViewComponents,
 };
@@ -36,8 +39,9 @@ use bevy::{
         schedule::{Core3d, Core3dSystems, camera_driver},
     },
     prelude::*,
+    pbr::MeshPipelineSystems,
     render::{
-        Extract, Render, RenderApp, RenderSystems,
+        Extract, Render, RenderApp, RenderStartup, RenderSystems,
         render_phase::{DrawFunctions, ViewSortedRenderPhases, sort_phase_system},
         render_resource::*,
         renderer::RenderGraph,
@@ -119,6 +123,7 @@ fn cleanup_despawned_gpu_terrains(
     mut gpu_terrain_views: ResMut<TerrainViewComponents<GpuTerrainView>>,
     mut gpu_terrain_shadows: ResMut<TerrainViewComponents<GpuTerrainShadow>>,
     mut shadow_uniforms: ResMut<TerrainViewComponents<TerrainShadowUniform>>,
+    mut shadow_refreshes: ResMut<TerrainViewComponents<TerrainShadowRefresh>>,
     mut tiling_prepass_items: ResMut<TerrainViewComponents<TilingPrepassItem>>,
     terrains: Extract<Query<Entity, With<TileAtlas>>>,
 ) {
@@ -129,6 +134,7 @@ fn cleanup_despawned_gpu_terrains(
     gpu_terrain_views.retain(|(terrain, _view), _| live.contains(terrain));
     gpu_terrain_shadows.retain(|(terrain, _view), _| live.contains(terrain));
     shadow_uniforms.retain(|(terrain, _view), _| live.contains(terrain));
+    shadow_refreshes.retain(|(terrain, _view), _| live.contains(terrain));
     tiling_prepass_items.retain(|(terrain, _view), _| live.contains(terrain));
 }
 
@@ -147,6 +153,7 @@ impl Plugin for TerrainPlugin {
             .init_resource::<TerrainSettings>()
             .init_resource::<TerrainShadowSettings>()
             .init_resource::<TerrainViewComponents<TerrainShadowUniform>>()
+            .init_resource::<TerrainViewComponents<TerrainShadowRefresh>>()
             .init_asset_loader::<TerrainConfigLoader>()
             .init_asset_loader::<TiffLoader>()
             .add_message::<TerrainTileReady>()
@@ -185,8 +192,13 @@ impl Plugin for TerrainPlugin {
             .init_resource::<TerrainViewComponents<TilingPrepassItem>>()
             .init_resource::<TerrainShadowSettings>()
             .init_resource::<TerrainViewComponents<TerrainShadowUniform>>()
+            .init_resource::<TerrainViewComponents<TerrainShadowRefresh>>()
             .init_resource::<DrawFunctions<TerrainItem>>()
             .init_resource::<ViewSortedRenderPhases<TerrainItem>>()
+            .add_systems(
+                RenderStartup,
+                init_terrain_deferred_lighting_pipeline.after(MeshPipelineSystems),
+            )
             .add_systems(
                 ExtractSchedule,
                 (
@@ -225,6 +237,7 @@ impl Plugin for TerrainPlugin {
                         queue_tiling_prepass,
                         GpuTileAtlas::queue,
                         GpuTerrainShadow::queue,
+                        queue_terrain_deferred_lighting,
                     )
                         .in_set(RenderSystems::Queue),
                     GpuTileAtlas::_cleanup.in_set(RenderSystems::Cleanup),
@@ -279,6 +292,8 @@ impl Plugin for TerrainPlugin {
             .init_resource::<DepthCopyPipeline>()
             .init_resource::<SpecializedRenderPipelines<DepthCopyPipeline>>()
             .init_resource::<TerrainDeferredCompositePipeline>()
+            .init_resource::<SpecializedRenderPipelines<TerrainDeferredLightingPipeline>>()
+            .init_resource::<TerrainDeferredLightingPipelines>()
             .init_resource::<TerrainMotionPipeline>();
     }
 }

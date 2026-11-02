@@ -2,8 +2,7 @@ use crate::{
     debug::DebugTerrain,
     render::{
         DrawTerrainCommand, GpuTerrainView, SetTerrainBindGroup, SetTerrainViewBindGroup,
-        TERRAIN_DEPTH_FORMAT, TerrainItem, TerrainTilingPrepassPipelines,
-        deferred_gbuffer_targets,
+        TERRAIN_DEPTH_FORMAT, TerrainItem, TerrainTilingPrepassPipelines, deferred_gbuffer_targets,
     },
     shaders::{DEFAULT_FRAGMENT_SHADER, DEFAULT_VERTEX_SHADER},
     spawn::{TerrainsToSpawn, spawn_terrains},
@@ -235,6 +234,22 @@ impl TerrainPipelineFlags {
     }
 }
 
+/// The shader def selecting the view's `SHADOW_FILTER_METHOD_*` (the masked
+/// bits of its [`MeshPipelineKey`]), so `sample_shadow_map` specializes to the
+/// same filter as the mesh pipeline — with no method defined its fallback
+/// returns 0.0 (fully shadowed).
+pub(crate) fn shadow_filter_shader_def(shadow_filter_method: MeshPipelineKey) -> Option<ShaderDefVal> {
+    if shadow_filter_method == MeshPipelineKey::SHADOW_FILTER_METHOD_HARDWARE_2X2 {
+        Some("SHADOW_FILTER_METHOD_HARDWARE_2X2".into())
+    } else if shadow_filter_method == MeshPipelineKey::SHADOW_FILTER_METHOD_GAUSSIAN {
+        Some("SHADOW_FILTER_METHOD_GAUSSIAN".into())
+    } else if shadow_filter_method == MeshPipelineKey::SHADOW_FILTER_METHOD_TEMPORAL {
+        Some("SHADOW_FILTER_METHOD_TEMPORAL".into())
+    } else {
+        None
+    }
+}
+
 /// Whether the terrain renders through the deferred G-buffer on a view:
 /// the view has a deferred prepass AND `OpaqueRendererMethod::Auto`
 /// currently resolves to deferred — the same rule Bevy's opaque materials
@@ -332,13 +347,7 @@ impl<M: Material> SpecializedRenderPipeline for TerrainRenderPipeline<M> {
             shader_defs.push("MULTIPLE_LIGHT_PROBES_IN_ARRAY".into());
         }
 
-        if key.shadow_filter_method == MeshPipelineKey::SHADOW_FILTER_METHOD_HARDWARE_2X2 {
-            shader_defs.push("SHADOW_FILTER_METHOD_HARDWARE_2X2".into());
-        } else if key.shadow_filter_method == MeshPipelineKey::SHADOW_FILTER_METHOD_GAUSSIAN {
-            shader_defs.push("SHADOW_FILTER_METHOD_GAUSSIAN".into());
-        } else if key.shadow_filter_method == MeshPipelineKey::SHADOW_FILTER_METHOD_TEMPORAL {
-            shader_defs.push("SHADOW_FILTER_METHOD_TEMPORAL".into());
-        }
+        shader_defs.extend(shadow_filter_shader_def(key.shadow_filter_method));
 
         let view_layout = self.mesh_view_layouts.get_view_layout(view_layout_key);
         let mut bind_group_layouts = vec![
