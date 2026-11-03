@@ -30,10 +30,11 @@ pub(crate) struct TerrainsToSpawn<M: Material>(pub(crate) Vec<TerrainToSpawn<M>>
 pub(crate) fn spawn_terrains<M: Material>(
     mut commands: Commands,
     mut terrains: ResMut<TerrainsToSpawn<M>>,
-    asset_server: Res<AssetServer>,
+    configs: Res<Assets<TerrainConfig>>,
 ) {
     terrains.0.retain(|terrain| {
-        if asset_server.is_loaded(&terrain.config) {
+        // Also true for configs added in code, which the asset server never tracks.
+        if configs.contains(terrain.config.id()) {
             let terrain = terrain.clone();
 
             commands.queue(move |world: &mut World| {
@@ -121,7 +122,8 @@ pub trait SpawnTerrainCommandsExt<M: Material> {
     /// Spawn `config` for `view` (a camera) once the asset is loaded.
     ///
     /// Register [`TerrainMaterialPlugin`](crate::render::TerrainMaterialPlugin) for `M` first.
-    /// `config` is usually `asset_server.load("terrains/<name>/config.tc.ron")`.
+    /// `config` is usually `asset_server.load("terrains/<name>/config.tc.ron")`, or
+    /// `configs.add(TerrainConfig::from_heightfield(..))` for a heightfield built in code.
     /// [`TerrainViewConfig::default`](crate::terrain_view::TerrainViewConfig::default) is a fine start.
     fn spawn_terrain(
         &mut self,

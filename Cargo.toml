@@ -56,6 +56,11 @@ path = "examples/planar_world.rs"
 required-features = ["atmosphere_example"]
 
 [[example]]
+name = "heightfield"
+path = "examples/heightfield.rs"
+required-features = ["atmosphere_example"]
+
+[[example]]
 name = "spherical"
 path = "examples/spherical.rs"
 

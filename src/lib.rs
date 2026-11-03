@@ -27,6 +27,10 @@
 //!
 //! `spawn_terrain` waits until the config asset is loaded.
 //!
+//! A planar map can skip preprocessing: build the tiles in memory with
+//! [`TerrainConfig::from_heightfield`](terrain::TerrainConfig::from_heightfield) and
+//! pass `configs.add(config)` to `spawn_terrain` (see `examples/heightfield.rs`).
+//!
 //! ```no_run
 //! use bevy::prelude::*;
 //! use bevy_terrain::prelude::*;
@@ -98,6 +102,7 @@
 pub mod debug;
 mod floating_origin;
 pub mod formats;
+pub mod heightfield;
 pub mod math;
 mod metal_capture_env;
 pub mod picking;
@@ -125,6 +130,7 @@ pub mod prelude {
             DebugTerrainMaterial, GroundAlignedFreeCamera, GroundAlignedFreeCameraPlugin,
             LoadingImages, TerrainDebugPlugin,
         },
+        heightfield::{Heightfield, HeightfieldSettings},
         math::{TerrainShape, TileCoordinate},
         picking::{PickingData, TerrainPickingPlugin},
         planar_atmosphere::{PlanarAtmospherePlugin, PlanarAtmosphereSettings},

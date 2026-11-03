@@ -41,6 +41,18 @@ cargo install --git https://github.com/mate-h/bevy_terrain bevy_terrain_preproce
 
 The executable is `bevy_terrain_preprocess`. CLI flags are in the [preprocess README](https://github.com/mate-h/bevy_terrain/blob/main/preprocess/README.md).
 
+### Runtime heightfield (no preprocessing)
+
+A planar map can skip GDAL entirely. `TerrainConfig::from_heightfield` tiles a grid of heights (meters, row 0 at the top) in memory into the same pyramid the preprocess tool writes:
+
+```rust
+let heightfield = Heightfield::new(width, height, heights); // or Heightfield::from_image(&image, min, max)
+let config = TerrainConfig::from_heightfield(&heightfield, &HeightfieldSettings::new(8192.0));
+commands.spawn_terrain(configs.add(config), TerrainViewConfig::default(), material, camera);
+```
+
+`Heightfield::with_no_data(value)` masks missing texels. Tiling runs synchronously on the CPU (about 50 ms for 2048²), so build large inputs on the `AsyncComputeTaskPool`. Spherical / WGS84 datasets still need the preprocess tool.
+
 ## Bevy version
 
 | Branch | Bevy |
@@ -61,6 +73,9 @@ cargo run --example mount_baker --features atmosphere_example
 
 # Flat world on a planetary atmosphere shell
 cargo run --example planar_world --features atmosphere_example
+
+# Procedural heightfield tiled in memory, no preprocessing needed
+cargo run --example heightfield --features atmosphere_example
 
 # Spherical globe (expects assets/terrains/earth; also loads California)
 cargo run --example spherical

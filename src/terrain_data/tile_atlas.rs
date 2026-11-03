@@ -1,4 +1,5 @@
 use crate::{
+    heightfield::MemoryTiles,
     math::{TerrainShape, TileCoordinate},
     plugin::TerrainSettings,
     terrain::TerrainConfig,
@@ -71,6 +72,8 @@ pub struct TileAtlas {
     pub(crate) uploading_tiles: Vec<AttachmentTileWithData>,
     pub(crate) downloading_tiles: Vec<Task<AttachmentTileWithData>>,
     pub(crate) to_load: Vec<AttachmentTile>,
+    /// Tiles served from memory instead of the asset server (see [`TerrainConfig::from_heightfield`]).
+    pub(crate) memory_tiles: Option<MemoryTiles>,
     /// Attachments that finished loading, waiting on [`Self::stage_uploads`]'s
     /// per-frame byte budget before entering `uploading_tiles`.
     pending_uploads: VecDeque<(AttachmentTile, AttachmentData)>,
@@ -81,6 +84,8 @@ pub struct TileAtlas {
     /// Generation of the most recent tile-state insert (see [`TileState::generation`]).
     generation: u32,
 
+    /// Slot count, the texture-array depth of each attachment.
+    pub(crate) atlas_size: u32,
     pub(crate) lod_count: u32,
     pub(crate) min_height: f32,
     pub(crate) max_height: f32,
@@ -89,8 +94,12 @@ pub struct TileAtlas {
 }
 
 impl TileAtlas {
-    /// Atlas for `config`, with `settings.atlas_size` slots.
+    /// Atlas for `config`, with `settings.atlas_size` slots, or fewer if the dataset has fewer tiles.
     pub fn new(config: &TerrainConfig, settings: &TerrainSettings) -> Self {
+        // A dataset smaller than the atlas never needs more slots than it has tiles, and every
+        // slot costs a full texture-array layer of VRAM.
+        let atlas_size = settings.atlas_size.min(config.tiles.len() as u32).max(1);
+
         let attachments = config
             .attachments
             .iter()
@@ -100,9 +109,11 @@ impl TileAtlas {
         Self {
             attachments,
             tile_states: default(),
-            unused_indices: (0..settings.atlas_size).collect(),
+            unused_indices: (0..atlas_size).collect(),
+            atlas_size,
             existing_tiles: HashSet::from_iter(config.tiles.clone()),
             to_load: default(),
+            memory_tiles: config.memory_tiles.clone(),
             uploading_tiles: default(),
             downloading_tiles: default(),
             pending_uploads: default(),

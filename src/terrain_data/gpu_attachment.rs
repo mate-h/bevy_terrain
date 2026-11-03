@@ -231,7 +231,7 @@ impl GpuAttachment {
             size: Extent3d {
                 width: buffer_info.texture_size,
                 height: buffer_info.texture_size,
-                depth_or_array_layers: settings.atlas_size,
+                depth_or_array_layers: tile_atlas.atlas_size,
             },
             mip_level_count: attachment.mip_level_count,
             sample_count: 1,

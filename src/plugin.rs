@@ -57,7 +57,8 @@ use bevy::{
 pub struct TerrainSettings {
     /// Height first, then one entry per extra attachment, in bind order.
     pub attachments: Vec<AttachmentLabel>,
-    /// How many tiles can be resident at once. This is the texture-array depth.
+    /// How many tiles can be resident at once. This is the texture-array depth, capped at the
+    /// dataset's tile count.
     pub atlas_size: u32,
 }
 

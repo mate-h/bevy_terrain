@@ -53,6 +53,16 @@ impl DefaultLoader {
     }
 
     fn start_loading(&mut self, atlas: &mut TileAtlas, asset_server: &mut AssetServer) {
+        if let Some(memory_tiles) = atlas.memory_tiles.clone() {
+            // In-memory tiles finish at once; `TileAtlas::stage_uploads` still paces the uploads.
+            for tile in std::mem::take(&mut atlas.to_load) {
+                if let Some(data) = memory_tiles.0.get(&tile.coordinate) {
+                    atlas.tile_loaded(tile, AttachmentData::R32F(data.clone()));
+                }
+            }
+            return;
+        }
+
         while self.loading_tiles.len() < self.loading_tiles.capacity() {
             if let Some(tile) = self.to_load_next(&mut atlas.to_load) {
                 let attachment = &atlas.attachments[&tile.label];

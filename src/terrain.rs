@@ -2,6 +2,7 @@
 //!
 
 use crate::{
+    heightfield::MemoryTiles,
     math::{TerrainShape, TileCoordinate},
     terrain_data::{AttachmentConfig, AttachmentLabel},
 };
@@ -22,7 +23,8 @@ impl<C> Default for TerrainComponents<C> {
 
 /// One preprocessed dataset. Load it with `asset_server.load("terrains/<name>/config.tc.ron")`.
 ///
-/// The preprocess tool writes this file. You rarely build it by hand.
+/// The preprocess tool writes this file. You rarely build it by hand. To skip preprocessing for
+/// a planar map, build one with [`TerrainConfig::from_heightfield`] and add it to the assets.
 #[derive(Serialize, Deserialize, Asset, TypePath, Debug, Clone)]
 pub struct TerrainConfig {
     /// Terrain folder inside `assets/`. Tile files are loaded relative to this.
@@ -39,6 +41,10 @@ pub struct TerrainConfig {
     pub attachments: HashMap<AttachmentLabel, AttachmentConfig>,
     /// Every tile the dataset contains. The atlas only loads the ones a view requests.
     pub tiles: Vec<TileCoordinate>,
+    /// Height tiles held in memory instead of on disk, set by
+    /// [`TerrainConfig::from_heightfield`].
+    #[serde(skip)]
+    pub(crate) memory_tiles: Option<MemoryTiles>,
 }
 
 impl Default for TerrainConfig {
@@ -51,6 +57,7 @@ impl Default for TerrainConfig {
             path: default(),
             tiles: default(),
             attachments: default(),
+            memory_tiles: None,
         }
     }
 }
